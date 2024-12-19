@@ -315,7 +315,7 @@ struct box
     // Shader variable IDs
     GLuint mvpMatrixID;
     GLuint textureSamplerID;
-    GLuint programID;
+    GLuint boxprogID;
 
 	void initialize(glm::vec3 position, glm::vec3 scale)
 	{
@@ -350,25 +350,27 @@ struct box
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
 		// Create and compile our GLSL program from the shaders
-		programID = LoadShadersFromFile("../final/skybox.vert", "../final/skybox.frag");
-		if (programID == 0)
+		boxprogID = LoadShadersFromFile("../final/skybox.vert", "../final/skybox.frag");
+		if (boxprogID == 0)
 		{
 			std::cerr << "Failed to load shaders." << std::endl;
 		}
 
 		// Get a handle for our "MVP" uniform
-		mvpMatrixID = glGetUniformLocation(programID, "MVP");
+		mvpMatrixID = glGetUniformLocation(boxprogID, "MVP");
 
 		// Load a texture
 		textureID = LoadTextureTileBox("../final/cloudySea.jpg");
 
 		// Get a handle to texture sampler
-		textureSamplerID = glGetUniformLocation(programID, "textureSampler");
+		textureSamplerID = glGetUniformLocation(boxprogID, "textureSampler");
 	}
 
 	void render(glm::mat4 cameraMatrix)
 	{
-		glUseProgram(programID);
+		glDepthMask(GL_FALSE); // Disable depth writes
+		glUseProgram(boxprogID);
+		glBindVertexArray(vertexArrayID);
 
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
@@ -384,7 +386,7 @@ struct box
 		// -----------------------
 		glm::mat4 modelMatrix = glm::mat4();
 		// Translate the box
-		modelMatrix = glm::translate(modelMatrix, position);
+		modelMatrix = glm::translate(modelMatrix, camera.Position);
 		// Scale the box along each axis to make it look like a building
 		modelMatrix = glm::scale(modelMatrix, scale);
 		// -----------------------
@@ -413,7 +415,10 @@ struct box
 
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
-		// glDisableVertexAttribArray(2);
+
+		glBindVertexArray(0);
+		glUseProgram(0);
+		glDepthMask(GL_TRUE); 
 	}
 
     void cleanup()
@@ -422,7 +427,7 @@ struct box
         glDeleteBuffers(1, &colorBufferID);
         glDeleteBuffers(1, &indexBufferID);
         glDeleteVertexArrays(1, &vertexArrayID);
-        glDeleteProgram(programID);
+        glDeleteProgram(boxprogID);
     }
 
 };
@@ -432,141 +437,157 @@ struct box
 struct spire
 {
 	glm::vec3 position;
-    glm::vec3 scale;
+	glm::vec3 scale;
 
 	static const int slices = 36;
-	GLfloat vertex_buffer_data[slices*3+6];
-	GLfloat color_buffer_data[slices*3+6];
-	GLfloat index_buffer_data[slices*6];
+	GLfloat vertex_buffer_data[slices * 3 + 6];
+	GLfloat color_buffer_data[slices * 3 + 6];
+	GLuint index_buffer_data[slices * 6];
 
 	GLuint vertexArrayID;
-    GLuint vertexBufferID;
-    GLuint indexBufferID;
-    GLuint colorBufferID;
+	GLuint vertexBufferID;
+	GLuint indexBufferID;
+	GLuint colorBufferID;
 
-    GLuint mvpMatrixID;
-    GLuint programID;
-
+	GLuint mvpMatrixID;
+	GLuint coneprogID;
 
 	void initialize(glm::vec3 position, glm::vec3 scale)
 	{
 		this->position = position;
-		this->scale = scale; 
+		this->scale = scale;
 
-		float step = 2.0f * M_PI / slices; 
+		// Step size for the circle
+		float step = 2.0f * M_PI / slices;
 
+		// Top vertex (cone tip)
 		vertex_buffer_data[0] = 0.0f;
-		vertex_buffer_data[1] = 1.0f;
+		vertex_buffer_data[1] = 1.0f; // Cone tip at height 1.0
 		vertex_buffer_data[2] = 0.0f;
 
+		// Generate circle vertices
 		int vbd_index = 3;
-		float angle = 0.0;
-		for(int i = 0; i < slices; ++i) {
-			angle = i * step;
-			vertex_buffer_data[vbd_index++] = cos(angle);
-			vertex_buffer_data[vbd_index++] = 0.0f;
-			vertex_buffer_data[vbd_index++] = sin(angle);
+		for (int i = 0; i < slices; ++i)
+		{
+			float angle = i * step;
+			vertex_buffer_data[vbd_index++] = cos(angle); // X
+			vertex_buffer_data[vbd_index++] = 0.0f;       // Y (base is at y=0)
+			vertex_buffer_data[vbd_index++] = sin(angle); // Z
 		}
 
-		vertex_buffer_data[vbd_index++] = 0.0f;
-		vertex_buffer_data[vbd_index++] = 0.0f;
-		vertex_buffer_data[vbd_index++] = 0.0f;
+		// Center vertex for the base
+		vertex_buffer_data[vbd_index++] = 0.0f; // X
+		vertex_buffer_data[vbd_index++] = 0.0f; // Y
+		vertex_buffer_data[vbd_index++] = 0.0f; // Z
 
-		for(int i = 0; i < slices * 3 + 6; ++i) {
-			color_buffer_data[i] = 0.5f;
+		// Color data (all vertices the same color)
+		for (int i = 0; i < slices * 3 + 6; ++i)
+		{
+			color_buffer_data[i] = 0.5f; // Light gray
 		}
 
+		// Index buffer for triangles
 		int index = 0;
-		for(int i = 0; i < slices; ++i) {
-			index_buffer_data[index++] = 0;
-			index_buffer_data[index++] = 1 + i;
-			index_buffer_data[index++] = 1 + ((i + 1) % slices);
-			index_buffer_data[index++] = slices + 1;
-			index_buffer_data[index++] = 1 + i;
-			index_buffer_data[index++] = 1 + ((i + 1) % slices);
+		for (int i = 0; i < slices; ++i)
+		{
+			// Side triangles
+			index_buffer_data[index++] = 0;               // Tip
+			index_buffer_data[index++] = 1 + i;          // Current circle vertex
+			index_buffer_data[index++] = 1 + (i + 1) % slices; // Next circle vertex
+
+			// Base triangles
+			index_buffer_data[index++] = slices + 1; // Base center
+			index_buffer_data[index++] = 1 + i;     // Current circle vertex
+			index_buffer_data[index++] = 1 + (i + 1) % slices; // Next circle vertex
 		}
 
-		// Create a vertex array object
+		// Generate and bind VAO
 		glGenVertexArrays(1, &vertexArrayID);
 		glBindVertexArray(vertexArrayID);
 
-		// Create a vertex buffer object to store the vertex data
+		// Vertex Buffer
 		glGenBuffers(1, &vertexBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
 
-		// Create a vertex buffer object to store the color data
+		// Color Buffer
 		glGenBuffers(1, &colorBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
 
-		// Create an index buffer object to store the index data that defines triangle faces
+		// Index Buffer
 		glGenBuffers(1, &indexBufferID);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
-		// Create and compile our GLSL program from the shaders
-		programID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
-		if (programID == 0)
+		// Load shaders
+		coneprogID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
+		if (coneprogID == 0)
 		{
 			std::cerr << "Failed to load shaders." << std::endl;
 		}
 
-		// Get a handle for our "MVP" uniform
-		mvpMatrixID = glGetUniformLocation(programID, "MVP");
+		// Get MVP matrix uniform location
+		mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
+		if (mvpMatrixID == -1)
+		{
+			std::cerr << "Failed to get MVP uniform location." << std::endl;
+		}
 
+		// Unbind VAO
+		glBindVertexArray(0);
 	}
 
-	void render(glm::mat4 cameraMatrix) 
+	void render(glm::mat4 cameraMatrix)
 	{
-		
-		glUseProgram(programID);
+		glUseProgram(coneprogID);
+		glBindVertexArray(vertexArrayID);
 
+		// Set up vertex positions
 		glEnableVertexAttribArray(0);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
 		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+		// Set up vertex colors
 		glEnableVertexAttribArray(1);
 		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
 		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+		// Bind index buffer
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
-		// DONE: Model transform
-		// -----------------------
-		glm::mat4 modelMatrix = glm::mat4();
-		// Translate the box
+		// Model transformation
+		glm::mat4 modelMatrix = glm::mat4(1.0f);
 		modelMatrix = glm::translate(modelMatrix, position);
-		// Scale the box along each axis to make it look like a building
 		modelMatrix = glm::scale(modelMatrix, scale);
-		// -----------------------
 
-		// Set model-view-projection matrix
+		// Compute and set MVP matrix
 		glm::mat4 mvp = cameraMatrix * modelMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
-		// Draw the box
-		glDrawElements(
-			GL_TRIANGLES,	 // mode
-			(slices*6),				 // number of indices
-			GL_UNSIGNED_INT, // type
-			(void *)0		 // element array buffer offset
-		);
+		// Debugging: Enable wireframe mode
+		// Uncomment the line below to enable wireframe rendering for debugging.
+		// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
+		// Draw elements
+		glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
+
+		// Reset state
 		glDisableVertexAttribArray(0);
 		glDisableVertexAttribArray(1);
+		glBindVertexArray(0);
 	}
 
-    void cleanup()
-    {
-        glDeleteBuffers(1, &vertexBufferID);
-        glDeleteBuffers(1, &colorBufferID);
-        glDeleteBuffers(1, &indexBufferID);
-        glDeleteVertexArrays(1, &vertexArrayID);
-        glDeleteProgram(programID);
-    }
-		
+	void cleanup()
+	{
+		glDeleteBuffers(1, &vertexBufferID);
+		glDeleteBuffers(1, &colorBufferID);
+		glDeleteBuffers(1, &indexBufferID);
+		glDeleteVertexArrays(1, &vertexArrayID);
+		glDeleteProgram(coneprogID);
+	}
 };
+
 
 /*
 //TODO: Ocean simulation 
@@ -1225,13 +1246,13 @@ int main(void)
 	glEnable(GL_CULL_FACE);
 
 	box skybox;
-	skybox.initialize(glm::vec3(0, 0, 0), glm::vec3(100, 100, 100));
+	skybox.initialize(camera.Position, glm::vec3(100, 100, 100));
 
 	//box ground;
 	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
 
 	spire spire;
-	spire.initialize(glm::vec3(0, 0, 0), glm::vec3(20, 40, 20));
+	spire.initialize(glm::vec3(0, 0, -70), glm::vec3(20, 40, 20));
 
 	/* water
 	std::list <waterTile> waterTiles;
@@ -1245,7 +1266,6 @@ int main(void)
 	glm::float32 zNear = 0.1f;
 	glm::float32 zFar = 1000.0f;
     glm::mat4 viewMatrix, projectionMatrix;
-	//projectionMatrix = glm::perspective(glm::radians(FoV), (float)windowWidth / windowHeight, zNear, zFar);
 	projectionMatrix = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, zNear, zFar);
 
 	// Time and frame rate tracking
@@ -1264,6 +1284,8 @@ int main(void)
         float deltaTime = float(currentTime - lastTime);
 		lastTime = currentTime;
 
+		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
 		processInput(window, camera, deltaTime);
 
 		/*if (playAnimation) {
@@ -1272,7 +1294,6 @@ int main(void)
 		}*/
 
 		// view/projection transformations
-       //glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, 0.1f, 100.0f);
         glm::mat4 viewMatrix = camera.GetViewMatrix();
 
 		// Rendering
@@ -1324,7 +1345,10 @@ int main(void)
 //DONE: free-roam cam
 void processInput(GLFWwindow *window, Camera &camera, float deltaTime)
 {
-	std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
+	// std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
+
+	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+	glfwSetWindowShouldClose(window, true);
 
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
         camera.ProcessKeyboard(FORWARD, deltaTime);
@@ -1356,7 +1380,7 @@ void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
     }
 
     float xoffset = xpos - lastX;
-    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+    float yoffset = lastY - ypos; 
 
     lastX = xpos;
     lastY = ypos;
