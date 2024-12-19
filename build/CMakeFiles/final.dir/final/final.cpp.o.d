@@ -1172,4 +1172,6 @@ CMakeFiles/final.dir/final/final.cpp.o: \
   /Users/estinebruner/projects/computer_graphics/final/external/tinygltf-2.9.3/stb_image_write.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/TargetConditionals.h \
   /Users/estinebruner/projects/computer_graphics/final/final/render/shader.h \
-  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/iostream
+  /Users/estinebruner/projects/computer_graphics/final/final/camera.h \
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/iostream \
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/list

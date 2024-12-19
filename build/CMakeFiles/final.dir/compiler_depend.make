@@ -813,6 +813,7 @@ CMakeFiles/final.dir/final/final.cpp.o: /Users/estinebruner/projects/computer_gr
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/istream \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/iterator \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/limits \
+  /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/list \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/locale \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/locale.h \
   /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/map \
@@ -1174,6 +1175,7 @@ CMakeFiles/final.dir/final/final.cpp.o: /Users/estinebruner/projects/computer_gr
   /Users/estinebruner/projects/computer_graphics/final/external/tinygltf-2.9.3/stb_image.h \
   /Users/estinebruner/projects/computer_graphics/final/external/tinygltf-2.9.3/stb_image_write.h \
   /Users/estinebruner/projects/computer_graphics/final/external/tinygltf-2.9.3/tiny_gltf.h \
+  /Users/estinebruner/projects/computer_graphics/final/final/camera.h \
   /Users/estinebruner/projects/computer_graphics/final/final/render/shader.h
 
 CMakeFiles/final.dir/final/render/shader.cpp.o: /Users/estinebruner/projects/computer_graphics/final/final/render/shader.cpp \
@@ -2506,6 +2508,8 @@ CMakeFiles/final.dir/final/render/shader.cpp.o: /Users/estinebruner/projects/com
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/tuple:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/string_view:
+
+/Users/estinebruner/projects/computer_graphics/final/final/camera.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/string.h:
 
@@ -4200,6 +4204,8 @@ CMakeFiles/final.dir/final/render/shader.cpp.o: /Users/estinebruner/projects/com
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/__utility/swap.h:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/__algorithm/max_element.h:
+
+/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/list:
 
 /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.2.sdk/usr/include/c++/v1/__memory/uses_allocator.h:
 

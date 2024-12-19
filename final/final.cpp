@@ -12,9 +12,11 @@
 #include <tiny_gltf.h>
 
 #include <render/shader.h>
+#include "camera.h"
 
 #include <vector>
 #include <iostream>
+#include <list>
 #define _USE_MATH_DEFINES
 #include <math.h>
 
@@ -27,13 +29,13 @@ static int windowHeight = 768;
 static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode);
 
 // Camera
-static glm::vec3 eye_center(0.0f, 100.0f, 800.0f);
-static glm::vec3 lookat(0.0f, 0.0f, 0.0f);
-static glm::vec3 up(0.0f, 1.0f, 0.0f);
-static float FoV = 45.0f;
-static float zNear = 100.0f;
-static float zFar = 1500.0f; 
-static glm::vec3 cameraPos(0.0f, 0.0f,  3.0f);
+Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+float lastX = windowWidth / 2.0f;
+float lastY = windowHeight / 2.0f;
+bool firstMouse = true;
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void mouse_callback(GLFWwindow* window, double xpos, double ypos);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 
 // View control
 static float viewAzimuth = 0.f;
@@ -41,8 +43,17 @@ static float viewPolar = 0.f;
 static float viewDistance = 0.1f; //changed from 300.0f
 
 // Lighting  
-static glm::vec3 lightIntensity(5e6f, 5e6f, 5e6f);
-static glm::vec3 lightPosition(-275.0f, 500.0f, 800.0f);
+const glm::vec3 wave500(0.0f, 255.0f, 146.0f);
+const glm::vec3 wave600(255.0f, 190.0f, 0.0f);
+const glm::vec3 wave700(205.0f, 0.0f, 0.0f);
+static glm::vec3 lightIntensity = 5.0f * (8.0f * wave500 + 15.6f * wave600 + 18.4f * wave700);
+static glm::vec3 lightPosition(-275.0f, 500.0f, -275.0f);
+static glm::vec3 lightDir(0.0f, -1.0f, 0.0f);
+
+// Shadows
+static float depthFoV = 100.0f; 
+static float depthNear = 50.0f; 
+static float depthFar = 750.0f; 
 
 // Animation 
 static bool playAnimation = true;
@@ -351,11 +362,10 @@ struct box
 		// Get a handle for our "MVP" uniform
 		mvpMatrixID = glGetUniformLocation(programID, "MVP");
 
-		// DONE: Load a texture
-
+		// Load a texture
 		textureID = LoadTextureTileBox("../final/cloudySea.jpg");
 
-		// DONE: Get a handle to texture sampler
+		// Get a handle to texture sampler
 		textureSamplerID = glGetUniformLocation(programID, "textureSampler");
 	}
 
@@ -442,9 +452,612 @@ struct spire
 	}
 };
 
-//TODO: Ocean simulation
+/*
+//TODO: Ocean simulation 
+struct waterTile 
+{
+	float tile_size = 60;
+	float height, x, z;
+
+	GLfloat vertex_buffer_data[12] = {-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1 };
+
+	// OpenGL buffers
+	GLuint vertexArrayID;
+	GLuint vertexBufferID;
+	GLuint indexBufferID;
+	GLuint colorBufferID;
+	GLuint normalBufferID;
+	GLuint uvBufferID;
+    GLuint textureID;
+
+	// Shader variable IDs
+	GLuint mvpMatrixID;
+	GLuint programID;
+	GLuint textureSamplerID;
+	
+
+	void initialize(float xcoord, float zcoord, float heightval) {
+		x = xcoord;
+		z = zcoord;
+		height = heightval;
+
+		// Create a vertex array object
+		glGenVertexArrays(1, &vertexArrayID);
+		glBindVertexArray(vertexArrayID);
+
+		// Create a vertex buffer object to store the vertex data
+		glGenBuffers(1, &vertexBufferID);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
+
+		// Create and compile our GLSL program from the shaders
+		programID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
+		if (programID == 0)
+		{
+			std::cerr << "Failed to load shaders." << std::endl;
+		}
+
+		// Get a handle for our "MVP" uniform
+		mvpMatrixID = glGetUniformLocation(programID, "MVP");
+		
+		// Load a texture
+		//textureID = LoadTextureTileBox("../final/cloudySea.jpg");
+
+		// Get a handle to texture sampler
+		textureSamplerID = glGetUniformLocation(programID, "textureSampler");
+	}
+
+	void render(glm::mat4 cameraMatrix) {
+		glUseProgram(programID);
+
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+		// Set model-view-projection matrix
+		glm::mat4 mvp = cameraMatrix;
+		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+		// Draw the box
+		glDrawElements(
+			GL_TRIANGLES,	 // mode
+			36,				 // number of indices
+			GL_UNSIGNED_INT, // type
+			(void *)0		 // element array buffer offset
+		);
+
+		glDisableVertexAttribArray(0);
+	}
+
+};
+*/
 
 //TODO: Model animation
+struct korok {
+	// Shader variable IDs
+	GLuint mvpMatrixID;
+	GLuint jointMatricesID;
+	GLuint lightPositionID;
+	GLuint lightIntensityID;
+	GLuint programID;
+
+	tinygltf::Model model;
+
+	// Each VAO corresponds to each mesh primitive in the GLTF model
+	struct PrimitiveObject {
+		GLuint vao;
+		std::map<int, GLuint> vbos;
+	};
+	std::vector<PrimitiveObject> primitiveObjects;
+
+	// Skinning 
+	struct SkinObject {
+		// Transforms the geometry into the space of the respective joint
+		std::vector<glm::mat4> inverseBindMatrices;  
+
+		// Transforms the geometry following the movement of the joints
+		std::vector<glm::mat4> globalJointTransforms;
+
+		// Combined transforms
+		std::vector<glm::mat4> jointMatrices;
+	};
+	std::vector<SkinObject> skinObjects;
+
+	// Animation 
+	struct SamplerObject {
+		std::vector<float> input;
+		std::vector<glm::vec4> output;
+		int interpolation;
+	};
+	struct ChannelObject {
+		int sampler;
+		std::string targetPath;
+		int targetNode;
+	}; 
+	struct AnimationObject {
+		std::vector<SamplerObject> samplers;	// Animation data
+	};
+	std::vector<AnimationObject> animationObjects;
+
+	glm::mat4 getNodeTransform(const tinygltf::Node& node) {
+		glm::mat4 transform(1.0f); 
+
+		if (node.matrix.size() == 16) {
+			transform = glm::make_mat4(node.matrix.data());
+		} else {
+			if (node.translation.size() == 3) {
+				transform = glm::translate(transform, glm::vec3(node.translation[0], node.translation[1], node.translation[2]));
+			}
+			if (node.rotation.size() == 4) {
+				glm::quat q(node.rotation[3], node.rotation[0], node.rotation[1], node.rotation[2]);
+				transform *= glm::mat4_cast(q);
+			}
+			if (node.scale.size() == 3) {
+				transform = glm::scale(transform, glm::vec3(node.scale[0], node.scale[1], node.scale[2]));
+			}
+		}
+		return transform;
+	}
+
+	void computeLocalNodeTransform(const tinygltf::Model& model, 
+		int nodeIndex, 
+		std::vector<glm::mat4> &localTransforms)
+	{
+		const tinygltf::Node& node = model.nodes[nodeIndex];
+		localTransforms[nodeIndex] = getNodeTransform(node);
+		for (int childIndex : node.children) {
+			computeLocalNodeTransform(model, childIndex, localTransforms);
+		}
+
+	}
+
+	void computeGlobalNodeTransform(const tinygltf::Model& model, 
+		const std::vector<glm::mat4> &localTransforms,
+		int nodeIndex, const glm::mat4& parentTransform, 
+		std::vector<glm::mat4> &globalTransforms)
+	{
+		const tinygltf::Node& node = model.nodes[nodeIndex];
+		globalTransforms.push_back(parentTransform * localTransforms[nodeIndex]);
+		for (int childIndex : node.children) {
+			computeGlobalNodeTransform(model, localTransforms, childIndex, parentTransform * localTransforms[nodeIndex], globalTransforms);
+		}
+	}
+
+	std::vector<SkinObject> prepareSkinning(const tinygltf::Model &model) {
+		std::vector<SkinObject> skinObjects;
+
+		// In our Blender exporter, the default number of joints that may influence a vertex is set to 4, just for convenient implementation in shaders.
+
+		for (size_t i = 0; i < model.skins.size(); i++) {
+			SkinObject skinObject;
+
+			const tinygltf::Skin &skin = model.skins[i];
+
+			// Read inverseBindMatrices
+			const tinygltf::Accessor &accessor = model.accessors[skin.inverseBindMatrices];
+			assert(accessor.type == TINYGLTF_TYPE_MAT4);
+			const tinygltf::BufferView &bufferView = model.bufferViews[accessor.bufferView];
+			const tinygltf::Buffer &buffer = model.buffers[bufferView.buffer];
+			const float *ptr = reinterpret_cast<const float *>(
+            	buffer.data.data() + accessor.byteOffset + bufferView.byteOffset);
+			
+			skinObject.inverseBindMatrices.resize(accessor.count);
+			for (size_t j = 0; j < accessor.count; j++) {
+				float m[16];
+				memcpy(m, ptr + j * 16, 16 * sizeof(float));
+				skinObject.inverseBindMatrices[j] = glm::make_mat4(m);
+			}
+
+			assert(skin.joints.size() == accessor.count);
+
+			skinObject.globalJointTransforms.resize(skin.joints.size());
+			skinObject.jointMatrices.resize(skin.joints.size());
+
+			// DONE: your code here to compute joint matrices
+			// ----------------------------------------------
+
+       		std::vector<glm::mat4> localTransforms(skin.joints.size());
+       		computeLocalNodeTransform(model, skin.joints[0], localTransforms);
+
+			glm::mat4 parentTransform(1.0f);
+			computeGlobalNodeTransform(model, localTransforms, skin.joints[0], parentTransform, skinObject.globalJointTransforms);
+
+			for(int j = 0; j < skin.joints.size(); j++) {
+				skinObject.jointMatrices[j] = skinObject.globalJointTransforms[skin.joints[j]]*skinObject.inverseBindMatrices[j];
+			}
+
+			skinObjects.push_back(skinObject);
+		}
+		return skinObjects;
+	}
+
+	int findKeyframeIndex(const std::vector<float>& times, float animationTime) 
+	{
+		int left = 0;
+		int right = times.size() - 1;
+
+		while (left <= right) {
+			int mid = (left + right) / 2;
+
+			if (mid + 1 < times.size() && times[mid] <= animationTime && animationTime < times[mid + 1]) {
+				return mid;
+			}
+			else if (times[mid] > animationTime) {
+				right = mid - 1;
+			}
+			else { // animationTime >= times[mid + 1]
+				left = mid + 1;
+			}
+		}
+
+		// Target not found
+		return times.size() - 2;
+	}
+
+	std::vector<AnimationObject> prepareAnimation(const tinygltf::Model &model) 
+	{
+		std::vector<AnimationObject> animationObjects;
+		for (const auto &anim : model.animations) {
+			AnimationObject animationObject;
+			
+			for (const auto &sampler : anim.samplers) {
+				SamplerObject samplerObject;
+
+				const tinygltf::Accessor &inputAccessor = model.accessors[sampler.input];
+				const tinygltf::BufferView &inputBufferView = model.bufferViews[inputAccessor.bufferView];
+				const tinygltf::Buffer &inputBuffer = model.buffers[inputBufferView.buffer];
+
+				assert(inputAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
+				assert(inputAccessor.type == TINYGLTF_TYPE_SCALAR);
+
+				// Input (time) values
+				samplerObject.input.resize(inputAccessor.count);
+
+				const unsigned char *inputPtr = &inputBuffer.data[inputBufferView.byteOffset + inputAccessor.byteOffset];
+				const float *inputBuf = reinterpret_cast<const float*>(inputPtr);
+
+				// Read input (time) values
+				int stride = inputAccessor.ByteStride(inputBufferView);
+				for (size_t i = 0; i < inputAccessor.count; ++i) {
+					samplerObject.input[i] = *reinterpret_cast<const float*>(inputPtr + i * stride);
+				}
+				
+				const tinygltf::Accessor &outputAccessor = model.accessors[sampler.output];
+				const tinygltf::BufferView &outputBufferView = model.bufferViews[outputAccessor.bufferView];
+				const tinygltf::Buffer &outputBuffer = model.buffers[outputBufferView.buffer];
+
+				assert(outputAccessor.componentType == TINYGLTF_COMPONENT_TYPE_FLOAT);
+
+				const unsigned char *outputPtr = &outputBuffer.data[outputBufferView.byteOffset + outputAccessor.byteOffset];
+				const float *outputBuf = reinterpret_cast<const float*>(outputPtr);
+
+				int outputStride = outputAccessor.ByteStride(outputBufferView);
+				
+				// Output values
+				samplerObject.output.resize(outputAccessor.count);
+				
+				for (size_t i = 0; i < outputAccessor.count; ++i) {
+
+					if (outputAccessor.type == TINYGLTF_TYPE_VEC3) {
+						memcpy(&samplerObject.output[i], outputPtr + i * 3 * sizeof(float), 3 * sizeof(float));
+					} else if (outputAccessor.type == TINYGLTF_TYPE_VEC4) {
+						memcpy(&samplerObject.output[i], outputPtr + i * 4 * sizeof(float), 4 * sizeof(float));
+					} else {
+						std::cout << "Unsupport accessor type ..." << std::endl;
+					}
+
+				}
+
+				animationObject.samplers.push_back(samplerObject);			
+			}
+
+			animationObjects.push_back(animationObject);
+		}
+		return animationObjects;
+	}
+
+	void updateAnimation(
+		const tinygltf::Model &model, 
+		const tinygltf::Animation &anim, 
+		const AnimationObject &animationObject, 
+		float time,
+		std::vector<glm::mat4> &nodeTransforms) 
+	{
+		// There are many channels so we have to accumulate the transforms 
+		for (const auto &channel : anim.channels) {
+			
+			int targetNodeIndex = channel.target_node;
+			const auto &sampler = anim.samplers[channel.sampler];
+			
+			// Access output (value) data for the channel
+			const tinygltf::Accessor &outputAccessor = model.accessors[sampler.output];
+			const tinygltf::BufferView &outputBufferView = model.bufferViews[outputAccessor.bufferView];
+			const tinygltf::Buffer &outputBuffer = model.buffers[outputBufferView.buffer];
+
+			// Calculate current animation time (wrap if necessary)
+			const std::vector<float> &times = animationObject.samplers[channel.sampler].input;
+			float animationTime = fmod(time, times.back());
+
+			int keyframeIndex = findKeyframeIndex(times, animationTime);  
+
+			const unsigned char *outputPtr = &outputBuffer.data[outputBufferView.byteOffset + outputAccessor.byteOffset];
+			const float *outputBuf = reinterpret_cast<const float*>(outputPtr);
+
+			if (channel.target_path == "translation") {
+				glm::vec3 translation0, translation1;
+				memcpy(&translation0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
+
+				glm::vec3 translation = translation0;
+				nodeTransforms[targetNodeIndex] = glm::translate(nodeTransforms[targetNodeIndex], translation);
+			} else if (channel.target_path == "rotation") {
+				glm::quat rotation0, rotation1;
+				memcpy(&rotation0, outputPtr + keyframeIndex * 4 * sizeof(float), 4 * sizeof(float));
+
+				glm::quat rotation = rotation0;
+				nodeTransforms[targetNodeIndex] *= glm::mat4_cast(rotation);
+			} else if (channel.target_path == "scale") {
+				glm::vec3 scale0, scale1;
+				memcpy(&scale0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
+
+				glm::vec3 scale = scale0;
+				nodeTransforms[targetNodeIndex] = glm::scale(nodeTransforms[targetNodeIndex], scale);
+			}
+		}
+	}
+
+	void updateSkinning(const std::vector<glm::mat4> &nodeTransforms) {
+		for (size_t i = 0; i < skinObjects.size(); i++) {
+			SkinObject& skinObject = skinObjects[i];
+			const tinygltf::Skin& skin = model.skins[i];
+
+			for (size_t j = 0; j < skinObject.jointMatrices.size(); ++j) {
+				skinObject.jointMatrices[j] = nodeTransforms[j] * skinObject.inverseBindMatrices[j];
+			}
+		}
+
+	}
+
+	void update(float time) {
+		return;
+
+		if (model.animations.size() > 0) {
+			const tinygltf::Skin& skin = model.skins[0];
+			const tinygltf::Animation& animation = model.animations[0];
+			const AnimationObject& animationObject = animationObjects[0];
+			std::vector<glm::mat4> nodeTransforms(skin.joints.size());
+
+			for (size_t i = 0; i < nodeTransforms.size(); ++i) {
+				nodeTransforms[i] = glm::mat4(1.0);
+			}
+
+			updateAnimation(model, animation, animationObject, time, nodeTransforms);
+			glm::mat4 parentTransform(1.0f);
+			std::vector<glm::mat4> globalNodeTransform(0);
+			computeGlobalNodeTransform(model, nodeTransforms, skin.joints[0], parentTransform, globalNodeTransform);
+
+			updateSkinning(globalNodeTransform);
+		}
+	}
+
+	bool loadModel(tinygltf::Model &model, const char *filename) {
+		tinygltf::TinyGLTF loader;
+		std::string err;
+		std::string warn;
+
+		bool res = loader.LoadASCIIFromFile(&model, &err, &warn, filename);
+		if (!warn.empty()) {
+			std::cout << "WARN: " << warn << std::endl;
+		}
+
+		if (!err.empty()) {
+			std::cout << "ERR: " << err << std::endl;
+		}
+
+		if (!res)
+			std::cout << "Failed to load glTF: " << filename << std::endl;
+		else
+			std::cout << "Loaded glTF: " << filename << std::endl;
+
+		return res;
+	}
+
+	void initialize() {
+		// Modify your path if needed
+		if (!loadModel(model, "../final/model/scene.gltf")) {
+			return;
+		}
+
+		// Prepare buffers for rendering 
+		primitiveObjects = bindModel(model);
+
+		// Prepare joint matrices
+		skinObjects = prepareSkinning(model);
+
+		// Prepare animation data 
+		animationObjects = prepareAnimation(model);
+
+		// Create and compile our GLSL program from the shaders
+		programID = LoadShadersFromFile("../final/korok.vert", "../final/korok.frag");
+		if (programID == 0)
+		{
+			std::cerr << "Failed to load shaders." << std::endl;
+		}
+
+		// Get a handle for GLSL variables
+		mvpMatrixID = glGetUniformLocation(programID, "MVP");
+		jointMatricesID = glGetUniformLocation(programID,"u_jointMatrix"); 
+		lightPositionID = glGetUniformLocation(programID, "lightPosition");
+		lightIntensityID = glGetUniformLocation(programID, "lightIntensity");
+	}
+
+	void bindMesh(std::vector<PrimitiveObject> &primitiveObjects,
+				tinygltf::Model &model, tinygltf::Mesh &mesh) {
+
+		std::map<int, GLuint> vbos;
+		for (size_t i = 0; i < model.bufferViews.size(); ++i) {
+			const tinygltf::BufferView &bufferView = model.bufferViews[i];
+
+			int target = bufferView.target;
+			
+			if (bufferView.target == 0) { 
+				// The bufferView with target == 0 in our model refers to 
+				// the skinning weights, for 25 joints, each 4x4 matrix (16 floats), totaling to 400 floats or 1600 bytes. 
+				// So it is considered safe to skip the warning.
+				//std::cout << "WARN: bufferView.target is zero" << std::endl;
+				continue;
+			}
+
+			const tinygltf::Buffer &buffer = model.buffers[bufferView.buffer];
+			GLuint vbo;
+			glGenBuffers(1, &vbo);
+			glBindBuffer(target, vbo);
+			glBufferData(target, bufferView.byteLength,
+						&buffer.data.at(0) + bufferView.byteOffset, GL_STATIC_DRAW);
+			
+			vbos[i] = vbo;
+		}
+
+		// Each mesh can contain several primitives (or parts), each we need to 
+		// bind to an OpenGL vertex array object
+		for (size_t i = 0; i < mesh.primitives.size(); ++i) {
+
+			tinygltf::Primitive primitive = mesh.primitives[i];
+			tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
+
+			GLuint vao;
+			glGenVertexArrays(1, &vao);
+			glBindVertexArray(vao);
+
+			for (auto &attrib : primitive.attributes) {
+				tinygltf::Accessor accessor = model.accessors[attrib.second];
+				int byteStride =
+					accessor.ByteStride(model.bufferViews[accessor.bufferView]);
+				glBindBuffer(GL_ARRAY_BUFFER, vbos[accessor.bufferView]);
+
+				int size = 1;
+				if (accessor.type != TINYGLTF_TYPE_SCALAR) {
+					size = accessor.type;
+				}
+
+				int vaa = -1;
+				if (attrib.first.compare("POSITION") == 0) vaa = 0;
+				if (attrib.first.compare("NORMAL") == 0) vaa = 1;
+				if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
+				if (attrib.first.compare("JOINTS_0") == 0) vaa = 3;
+				if (attrib.first.compare("WEIGHTS_0") == 0) vaa = 4;
+				if (vaa > -1) {
+					glEnableVertexAttribArray(vaa);
+					glVertexAttribPointer(vaa, size, accessor.componentType,
+										accessor.normalized ? GL_TRUE : GL_FALSE,
+										byteStride, BUFFER_OFFSET(accessor.byteOffset));
+				} else {
+					std::cout << "vaa missing: " << attrib.first << std::endl;
+				}
+			}
+
+			// Record VAO for later use
+			PrimitiveObject primitiveObject;
+			primitiveObject.vao = vao;
+			primitiveObject.vbos = vbos;
+			primitiveObjects.push_back(primitiveObject);
+
+			glBindVertexArray(0);
+		}
+	}
+
+	void bindModelNodes(std::vector<PrimitiveObject> &primitiveObjects, 
+						tinygltf::Model &model,
+						tinygltf::Node &node) {
+		// Bind buffers for the current mesh at the node
+		if ((node.mesh >= 0) && (node.mesh < model.meshes.size())) {
+			bindMesh(primitiveObjects, model, model.meshes[node.mesh]);
+		}
+
+		// Recursive into children nodes
+		for (size_t i = 0; i < node.children.size(); i++) {
+			assert((node.children[i] >= 0) && (node.children[i] < model.nodes.size()));
+			bindModelNodes(primitiveObjects, model, model.nodes[node.children[i]]);
+		}
+	}
+
+	std::vector<PrimitiveObject> bindModel(tinygltf::Model &model) {
+		std::vector<PrimitiveObject> primitiveObjects;
+
+		const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+		for (size_t i = 0; i < scene.nodes.size(); ++i) {
+			assert((scene.nodes[i] >= 0) && (scene.nodes[i] < model.nodes.size()));
+			bindModelNodes(primitiveObjects, model, model.nodes[scene.nodes[i]]);
+		}
+
+		return primitiveObjects;
+	}
+
+	void drawMesh(const std::vector<PrimitiveObject> &primitiveObjects,
+				tinygltf::Model &model, tinygltf::Mesh &mesh) {
+		
+		for (size_t i = 0; i < mesh.primitives.size(); ++i) 
+		{
+			GLuint vao = primitiveObjects[i].vao;
+			std::map<int, GLuint> vbos = primitiveObjects[i].vbos;
+
+			glBindVertexArray(vao);
+
+			tinygltf::Primitive primitive = mesh.primitives[i];
+			tinygltf::Accessor indexAccessor = model.accessors[primitive.indices];
+
+			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbos.at(indexAccessor.bufferView));
+
+			glDrawElements(primitive.mode, indexAccessor.count,
+						indexAccessor.componentType,
+						BUFFER_OFFSET(indexAccessor.byteOffset));
+
+			glBindVertexArray(0);
+		}
+	}
+
+	void drawModelNodes(const std::vector<PrimitiveObject>& primitiveObjects,
+						tinygltf::Model &model, tinygltf::Node &node) {
+		// Draw the mesh at the node, and recursively do so for children nodes
+		if ((node.mesh >= 0) && (node.mesh < model.meshes.size())) {
+			drawMesh(primitiveObjects, model, model.meshes[node.mesh]);
+		}
+		for (size_t i = 0; i < node.children.size(); i++) {
+			drawModelNodes(primitiveObjects, model, model.nodes[node.children[i]]);
+		}
+	}
+	void drawModel(const std::vector<PrimitiveObject>& primitiveObjects,
+				tinygltf::Model &model) {
+		// Draw all nodes
+		const tinygltf::Scene &scene = model.scenes[model.defaultScene];
+		for (size_t i = 0; i < scene.nodes.size(); ++i) {
+			drawModelNodes(primitiveObjects, model, model.nodes[scene.nodes[i]]);
+		}
+	}
+
+	void render(glm::mat4 cameraMatrix) {
+		glUseProgram(programID);
+		
+		// Set camera
+		glm::mat4 mvp = cameraMatrix;
+		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+		for (size_t i = 0; i < skinObjects.size(); i++) {
+			const SkinObject& skin = skinObjects[i];
+			glUniformMatrix4fv(jointMatricesID, skin.jointMatrices.size(), GL_FALSE, glm::value_ptr(skin.jointMatrices[0]));
+		}
+
+		// Set light data 
+		glUniform3fv(lightPositionID, 1, &lightPosition[0]);
+		glUniform3fv(lightIntensityID, 1, &lightIntensity[0]);
+
+		// Draw the GLTF model
+		drawModel(primitiveObjects, model);
+	}
+
+	void cleanup() {
+		glDeleteProgram(programID);
+	}
+}; 
 
 //TODO: Lighting & Shadows
 
@@ -484,6 +1097,10 @@ int main(void)
 		return -1;
 	}
 
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+    glfwSetCursorPosCallback(window, mouse_callback);
+    glfwSetScrollCallback(window, scroll_callback);
+
 	// Background
 	glClearColor(0.2f, 0.2f, 0.25f, 0.0f);
 
@@ -493,16 +1110,20 @@ int main(void)
 	box skybox;
 	skybox.initialize(glm::vec3(0, 0, 0), glm::vec3(100, 100, 100));
 
-	box ground;
-	ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
+	//box ground;
+	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
 
 	spire spire;
 	spire.initialize(glm::vec3(0, 0, 0));
 
+	/* water
+	std::list <waterTile> waterTiles;
+	waterTile t;
+	t.initialize(75, -75, 0);
+	waterTiles.push_back(t);
+	*/
+
 	// Camera setup
-	eye_center.y = viewDistance;
-	eye_center.x = viewDistance;
-	eye_center.z = viewDistance;
 	glm::float32 FoV = 45;
 	glm::float32 zNear = 0.1f;
 	glm::float32 zFar = 1000.0f;
@@ -530,12 +1151,21 @@ int main(void)
 			bot.update(time);
 		}*/
 
+		// view/projection transformations
+       //glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, 0.1f, 100.0f);
+        glm::mat4 viewMatrix = camera.GetViewMatrix();
+
 		// Rendering
-		viewMatrix = glm::lookAt(eye_center, lookat, up);
 		glm::mat4 vp = projectionMatrix * viewMatrix;
 		skybox.render(vp);
-		ground.render(vp);
-		spire.render(vp);
+		//ground.render(vp);
+
+		/*
+		glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
+		glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
+		glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+		spire.render(lightSpaceMatrix);
+		*/
 
 		// FPS tracking 
 		// Count number of frames over a few seconds and take average
@@ -547,7 +1177,7 @@ int main(void)
 			fTime = 0;
 			
 			std::stringstream stream;
-			stream << std::fixed << std::setprecision(2) << "final project | Frames per second (FPS): " << fps;
+			stream << std::fixed << std::setprecision(2) << "final project | frames per second (FPS): " << fps;
 			glfwSetWindowTitle(window, stream.str().c_str());
 		}
 
@@ -560,7 +1190,7 @@ int main(void)
 
 	// Clean up
 	skybox.cleanup();
-	ground.cleanup();
+	//ground.cleanup();
 
 	// Close OpenGL window and terminate GLFW
 	glfwTerminate();
@@ -568,62 +1198,53 @@ int main(void)
 	return 0;
 }
 
-// Is called whenever a key is pressed/released via GLFW
+//Is called whenever a key is pressed/released via GLFW
 void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
 {
-	if (key == GLFW_KEY_R && action == GLFW_PRESS)
-	{
-		viewAzimuth = 0.f;
-		viewPolar = 0.f;
-		eye_center.y = viewDistance * cos(viewPolar);
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
-		std::cout << "Reset." << std::endl;
-	}
 
-	if (key == GLFW_KEY_UP && (action == GLFW_REPEAT || action == GLFW_PRESS))
-	{
-		viewPolar -= 0.1f;
-		eye_center.y = viewDistance * cos(viewPolar);
-	}
-
-	if (key == GLFW_KEY_DOWN && (action == GLFW_REPEAT || action == GLFW_PRESS))
-	{
-		viewPolar += 0.1f;
-		eye_center.y = viewDistance * cos(viewPolar);
-	}
-
-	if (key == GLFW_KEY_LEFT && (action == GLFW_REPEAT || action == GLFW_PRESS))
-	{
-		viewAzimuth -= 0.1f;
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
-	}
-
-	if (key == GLFW_KEY_RIGHT && (action == GLFW_REPEAT || action == GLFW_PRESS))
-	{
-		viewAzimuth += 0.1f;
-		eye_center.x = viewDistance * cos(viewAzimuth);
-		eye_center.z = viewDistance * sin(viewAzimuth);
-	}
-
-	// TODO: free-roam camera 
-	float cameraSpeed = static_cast<float>(2.5 * deltaTime);
-	glm::vec3 cameraFront = eye_center - lookat;
-
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        eye_center += cameraSpeed * cameraFront;
-	}
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        eye_center -= cameraSpeed * cameraFront;
-	}
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-        eye_center -= glm::normalize(glm::cross(cameraFront, up)) * cameraSpeed;
-	}
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-        eye_center += glm::normalize(glm::cross(cameraFront, up)) * cameraSpeed;
-	}
-
+    if (key ==GLFW_KEY_W && action == GLFW_PRESS)
+        camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (key ==GLFW_KEY_S && action == GLFW_PRESS)
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (key ==GLFW_KEY_A && action == GLFW_PRESS)
+        camera.ProcessKeyboard(LEFT, deltaTime);
+    if (key ==GLFW_KEY_D && action == GLFW_PRESS)
+        camera.ProcessKeyboard(RIGHT, deltaTime);
 	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, GL_TRUE);
+
+	std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
+}
+
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    // make sure the viewport matches the new window dimensions; note that width and 
+    // height will be significantly larger than specified on retina displays.
+    glViewport(0, 0, width, height);
+}
+
+void mouse_callback(GLFWwindow* window, double xposIn, double yposIn)
+{
+    float xpos = static_cast<float>(xposIn);
+    float ypos = static_cast<float>(yposIn);
+
+    if (firstMouse)
+    {
+        lastX = xpos;
+        lastY = ypos;
+        firstMouse = false;
+    }
+
+    float xoffset = xpos - lastX;
+    float yoffset = lastY - ypos; // reversed since y-coordinates go from bottom to top
+
+    lastX = xpos;
+    lastY = ypos;
+
+    camera.ProcessMouseMovement(xoffset, yoffset);
+}
+
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    camera.ProcessMouseScroll(static_cast<float>(yoffset));
 }
