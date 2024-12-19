@@ -433,7 +433,9 @@ struct box
 };
 
 
-// TODO: Cone geometry
+// DONE: Cone geometry
+// TODO: environment mapping
+// TODO: Lighting & Shadows
 struct spire
 {
 	glm::vec3 position;
@@ -488,18 +490,18 @@ struct spire
 
 		// Index buffer for triangles
 		int index = 0;
-		for (int i = 0; i < slices; ++i)
-		{
-			// Side triangles
-			index_buffer_data[index++] = 0;               // Tip
-			index_buffer_data[index++] = 1 + i;          // Current circle vertex
-			index_buffer_data[index++] = 1 + (i + 1) % slices; // Next circle vertex
-
-			// Base triangles
-			index_buffer_data[index++] = slices + 1; // Base center
-			index_buffer_data[index++] = 1 + i;     // Current circle vertex
-			index_buffer_data[index++] = 1 + (i + 1) % slices; // Next circle vertex
+		for (int i = 0; i < slices; ++i) {
+			index_buffer_data[index++] = 0; // Apex
+			index_buffer_data[index++] = 1 + ((i + 1) % slices); // Next base vertex
+			index_buffer_data[index++] = 1 + i; // Current base vertex
 		}
+
+		for (int i = 0; i < slices; ++i) {
+			index_buffer_data[index++] = slices + 1; // Center of the base
+			index_buffer_data[index++] = 1 + i; // Current base vertex
+			index_buffer_data[index++] = 1 + ((i + 1) % slices); // Next base vertex
+		}
+
 
 		// Generate and bind VAO
 		glGenVertexArrays(1, &vertexArrayID);
@@ -564,10 +566,6 @@ struct spire
 		// Compute and set MVP matrix
 		glm::mat4 mvp = cameraMatrix * modelMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
-
-		// Debugging: Enable wireframe mode
-		// Uncomment the line below to enable wireframe rendering for debugging.
-		// glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 		// Draw elements
 		glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
@@ -1198,7 +1196,6 @@ struct korok {
 }; 
 */
 
-//TODO: Lighting & Shadows
 
 int main(void)
 {
@@ -1248,11 +1245,11 @@ int main(void)
 	box skybox;
 	skybox.initialize(camera.Position, glm::vec3(100, 100, 100));
 
-	//box ground;
-	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
+	box ground;
+	ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
 
 	spire spire;
-	spire.initialize(glm::vec3(0, 0, -70), glm::vec3(20, 40, 20));
+	spire.initialize(glm::vec3(0, -10, -30), glm::vec3(3, 30, 3));
 
 	/* water
 	std::list <waterTile> waterTiles;
@@ -1299,9 +1296,9 @@ int main(void)
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
 		skybox.render(vp);
+		ground.render(vp);
 		spire.render(vp);
 
-		//ground.render(vp);
 
 		/*
 		glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
@@ -1334,7 +1331,7 @@ int main(void)
 	// Clean up
 	skybox.cleanup();
 	spire.cleanup();
-	//ground.cleanup();
+	ground.cleanup();
 
 	// Close OpenGL window and terminate GLFW
 	glfwTerminate();
