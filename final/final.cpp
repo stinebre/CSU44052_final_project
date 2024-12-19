@@ -20,13 +20,12 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
+
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 static GLFWwindow *window;
 static int windowWidth = 1024;
 static int windowHeight = 768;
-
-static void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode);
 
 // Camera
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
@@ -36,11 +35,12 @@ bool firstMouse = true;
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void processInput(GLFWwindow *window, Camera &camera, float deltaTime);
 
 // View control
 static float viewAzimuth = 0.f;
 static float viewPolar = 0.f;
-static float viewDistance = 0.1f; //changed from 300.0f
+static float viewDistance = 0.1f; 
 
 // Lighting  
 const glm::vec3 wave500(0.0f, 255.0f, 146.0f);
@@ -333,16 +333,13 @@ struct box
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
 
 		// Create a vertex buffer object to store the color data
-		// DONE:
 		for (int i = 0; i < 72; ++i)
 			color_buffer_data[i] = 1.0f;
 		glGenBuffers(1, &colorBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
 
-		// DONE: Create a vertex buffer object to store the UV data
-		/*for (int i = 0; i < 24; ++i)
-			uv_buffer_data[2 * i + 1] *= 3;*/
+		// Create a vertex buffer object to store the UV data
 		glGenBuffers(1, &uvBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(uv_buffer_data), uv_buffer_data, GL_STATIC_DRAW);
@@ -430,26 +427,145 @@ struct box
 
 };
 
+
 // TODO: Cone geometry
 struct spire
 {
 	glm::vec3 position;
+    glm::vec3 scale;
 
-	void initialize(glm::vec3 position)
+	static const int slices = 36;
+	GLfloat vertex_buffer_data[slices*3+6];
+	GLfloat color_buffer_data[slices*3+6];
+	GLfloat index_buffer_data[slices*6];
+
+	GLuint vertexArrayID;
+    GLuint vertexBufferID;
+    GLuint indexBufferID;
+    GLuint colorBufferID;
+
+    GLuint mvpMatrixID;
+    GLuint programID;
+
+
+	void initialize(glm::vec3 position, glm::vec3 scale)
 	{
 		this->position = position;
+		this->scale = scale; 
+
+		float step = 2.0f * M_PI / slices; 
+
+		vertex_buffer_data[0] = 0.0f;
+		vertex_buffer_data[1] = 1.0f;
+		vertex_buffer_data[2] = 0.0f;
+
+		int vbd_index = 3;
+		float angle = 0.0;
+		for(int i = 0; i < slices; ++i) {
+			angle = i * step;
+			vertex_buffer_data[vbd_index++] = cos(angle);
+			vertex_buffer_data[vbd_index++] = 0.0f;
+			vertex_buffer_data[vbd_index++] = sin(angle);
+		}
+
+		vertex_buffer_data[vbd_index++] = 0.0f;
+		vertex_buffer_data[vbd_index++] = 0.0f;
+		vertex_buffer_data[vbd_index++] = 0.0f;
+
+		for(int i = 0; i < slices * 3 + 6; ++i) {
+			color_buffer_data[i] = 0.5f;
+		}
+
+		int index = 0;
+		for(int i = 0; i < slices; ++i) {
+			index_buffer_data[index++] = 0;
+			index_buffer_data[index++] = 1 + i;
+			index_buffer_data[index++] = 1 + ((i + 1) % slices);
+			index_buffer_data[index++] = slices + 1;
+			index_buffer_data[index++] = 1 + i;
+			index_buffer_data[index++] = 1 + ((i + 1) % slices);
+		}
+
+		// Create a vertex array object
+		glGenVertexArrays(1, &vertexArrayID);
+		glBindVertexArray(vertexArrayID);
+
+		// Create a vertex buffer object to store the vertex data
+		glGenBuffers(1, &vertexBufferID);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
+
+		// Create a vertex buffer object to store the color data
+		glGenBuffers(1, &colorBufferID);
+		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
+		glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
+
+		// Create an index buffer object to store the index data that defines triangle faces
+		glGenBuffers(1, &indexBufferID);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
+
+		// Create and compile our GLSL program from the shaders
+		programID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
+		if (programID == 0)
+		{
+			std::cerr << "Failed to load shaders." << std::endl;
+		}
+
+		// Get a handle for our "MVP" uniform
+		mvpMatrixID = glGetUniformLocation(programID, "MVP");
+
 	}
 
 	void render(glm::mat4 cameraMatrix) 
 	{
-		/*
+		
+		glUseProgram(programID);
+
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+		glEnableVertexAttribArray(1);
+		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+
+		// DONE: Model transform
+		// -----------------------
 		glm::mat4 modelMatrix = glm::mat4();
+		// Translate the box
 		modelMatrix = glm::translate(modelMatrix, position);
+		// Scale the box along each axis to make it look like a building
+		modelMatrix = glm::scale(modelMatrix, scale);
+		// -----------------------
+
+		// Set model-view-projection matrix
 		glm::mat4 mvp = cameraMatrix * modelMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
-		*/
 
+		// Draw the box
+		glDrawElements(
+			GL_TRIANGLES,	 // mode
+			(slices*6),				 // number of indices
+			GL_UNSIGNED_INT, // type
+			(void *)0		 // element array buffer offset
+		);
+
+		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(1);
 	}
+
+    void cleanup()
+    {
+        glDeleteBuffers(1, &vertexBufferID);
+        glDeleteBuffers(1, &colorBufferID);
+        glDeleteBuffers(1, &indexBufferID);
+        glDeleteVertexArrays(1, &vertexArrayID);
+        glDeleteProgram(programID);
+    }
+		
 };
 
 /*
@@ -532,6 +648,7 @@ struct waterTile
 };
 */
 
+/*
 //TODO: Model animation
 struct korok {
 	// Shader variable IDs
@@ -1058,6 +1175,7 @@ struct korok {
 		glDeleteProgram(programID);
 	}
 }; 
+*/
 
 //TODO: Lighting & Shadows
 
@@ -1087,7 +1205,6 @@ int main(void)
 
 	// Ensure we can capture the escape key being pressed below
 	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
-	glfwSetKeyCallback(window, key_callback);
 
 	// Load OpenGL functions, gladLoadGL returns the loaded version, 0 on error.
 	int version = gladLoadGL(glfwGetProcAddress);
@@ -1114,7 +1231,7 @@ int main(void)
 	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
 
 	spire spire;
-	spire.initialize(glm::vec3(0, 0, 0));
+	spire.initialize(glm::vec3(0, 0, 0), glm::vec3(20, 40, 20));
 
 	/* water
 	std::list <waterTile> waterTiles;
@@ -1128,7 +1245,8 @@ int main(void)
 	glm::float32 zNear = 0.1f;
 	glm::float32 zFar = 1000.0f;
     glm::mat4 viewMatrix, projectionMatrix;
-	projectionMatrix = glm::perspective(glm::radians(FoV), (float)windowWidth / windowHeight, zNear, zFar);
+	//projectionMatrix = glm::perspective(glm::radians(FoV), (float)windowWidth / windowHeight, zNear, zFar);
+	projectionMatrix = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, zNear, zFar);
 
 	// Time and frame rate tracking
 	static double lastTime = glfwGetTime();
@@ -1146,6 +1264,8 @@ int main(void)
         float deltaTime = float(currentTime - lastTime);
 		lastTime = currentTime;
 
+		processInput(window, camera, deltaTime);
+
 		/*if (playAnimation) {
 			time += deltaTime * playbackSpeed;
 			bot.update(time);
@@ -1158,6 +1278,8 @@ int main(void)
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
 		skybox.render(vp);
+		spire.render(vp);
+
 		//ground.render(vp);
 
 		/*
@@ -1190,6 +1312,7 @@ int main(void)
 
 	// Clean up
 	skybox.cleanup();
+	spire.cleanup();
 	//ground.cleanup();
 
 	// Close OpenGL window and terminate GLFW
@@ -1198,22 +1321,19 @@ int main(void)
 	return 0;
 }
 
-//Is called whenever a key is pressed/released via GLFW
-void key_callback(GLFWwindow *window, int key, int scancode, int action, int mode)
+//DONE: free-roam cam
+void processInput(GLFWwindow *window, Camera &camera, float deltaTime)
 {
-
-    if (key ==GLFW_KEY_W && action == GLFW_PRESS)
-        camera.ProcessKeyboard(FORWARD, deltaTime);
-    if (key ==GLFW_KEY_S && action == GLFW_PRESS)
-        camera.ProcessKeyboard(BACKWARD, deltaTime);
-    if (key ==GLFW_KEY_A && action == GLFW_PRESS)
-        camera.ProcessKeyboard(LEFT, deltaTime);
-    if (key ==GLFW_KEY_D && action == GLFW_PRESS)
-        camera.ProcessKeyboard(RIGHT, deltaTime);
-	if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-		glfwSetWindowShouldClose(window, GL_TRUE);
-
 	std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
+
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+        camera.ProcessKeyboard(FORWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+        camera.ProcessKeyboard(BACKWARD, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+        camera.ProcessKeyboard(LEFT, deltaTime);
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+        camera.ProcessKeyboard(RIGHT, deltaTime);
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
