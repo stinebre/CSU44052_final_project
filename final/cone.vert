@@ -1,21 +1,28 @@
 #version 330 core
 
+// Input
 layout(location = 0) in vec3 vertexPosition;
-layout(location = 1) in vec3 vertexColor;
-layout(location = 2) in vec3 vertexNormal;
+layout(location = 1) in vec3 vertexNormal;
 
-out vec3 fragPosition;
-out vec3 fragColor;
-out vec3 fragNormal;
+// Output 
+out vec3 worldPosition;
+out vec3 reflectionVector;
 
-uniform mat4 MVP;
-uniform mat4 modelMatrix;
-uniform mat3 normalMatrix;
+// Uniforms
+uniform mat4 MVP;        
+uniform mat4 modelMatrix; 
+uniform mat3 normalMatrix; 
 
 void main() {
-    fragPosition = vec3(modelMatrix * vec4(vertexPosition, 1.0));
-    fragColor = vertexColor;
-    fragNormal = normalize(normalMatrix * vertexNormal);
-
     gl_Position = MVP * vec4(vertexPosition, 1.0);
+
+    vec4 worldPos = modelMatrix * vec4(vertexPosition, 1.0);
+    worldPosition = worldPos.xyz;
+    vec3 worldNormal = normalize(normalMatrix * vertexNormal);
+
+    // reflection
+    vec3 viewDir = normalize(-worldPosition); // Assume camera at (0,0,0)
+    reflectionVector = reflect(viewDir, worldNormal);
+    reflectionVector.y = -reflectionVector.y;
+
 }
