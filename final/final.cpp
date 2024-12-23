@@ -47,8 +47,14 @@ const glm::vec3 wave500(0.0f, 255.0f, 146.0f);
 const glm::vec3 wave600(255.0f, 190.0f, 0.0f);
 const glm::vec3 wave700(205.0f, 0.0f, 0.0f);
 static glm::vec3 lightIntensity = 5.0f * (8.0f * wave500 + 15.6f * wave600 + 18.4f * wave700);
-static glm::vec3 lightPosition(-275.0f, 500.0f, -275.0f);
+static const glm::vec3 lightPosition(-27.0f, 500.0f, 0.0f);
 static glm::vec3 lightDir(0.0f, -1.0f, 0.0f);
+
+// Shadow mapping
+static glm::vec3 lightUp(0, 0, 1);
+static int shadowMapWidth = 1024;
+static int shadowMapHeight = 1024;
+glm::mat4 lightProjection, lightSpaceView, lightSpaceMatrix;
 
 // Shadows
 static float depthFoV = 100.0f; 
@@ -485,9 +491,15 @@ struct spire
     GLuint normalBufferID;
     GLuint colorBufferID;
 
-    GLuint mvpMatrixID;
-    GLuint modelMatrixID;
+	GLuint lightPositionID;
+	GLuint depthProgramID;
+	GLuint lightSpaceMatrixID;
+	GLuint depthlightSpaceMatrixID;
+	GLuint shadowMapID;
+
+	GLuint modelMatrixID;
     GLuint normalMatrixID;
+    GLuint mvpMatrixID;
     GLuint coneprogID;
     GLuint cubemapID;
 
@@ -605,20 +617,32 @@ struct spire
             std::cerr << "Failed to load shaders." << std::endl;
         }
 
-        // Get MVP matrix uniform location
+		depthProgramID = LoadShadersFromFile("../final/depth.vert", "../final/depth.frag");
+		if (depthProgramID == 0)
+		{
+			std::cerr << "Failed to load depth shaders." << std::endl;
+		}
+
+        // Get matrix uniform locations
         mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
-        modelMatrixID = glGetUniformLocation(coneprogID, "modelMatrix");
+		modelMatrixID = glGetUniformLocation(coneprogID, "modelMatrix");
         normalMatrixID = glGetUniformLocation(coneprogID, "normalMatrix");
-        if (mvpMatrixID == -1 || modelMatrixID == -1 || normalMatrixID == -1)
-        {
-            std::cerr << "Failed to get uniform locations." << std::endl;
+		lightPositionID = glGetUniformLocation(coneprogID, "lightPosition");
+		lightSpaceMatrixID = glGetUniformLocation(depthProgramID, "lightSpaceMatrix");
+		depthlightSpaceMatrixID = glGetUniformLocation(coneprogID, "lightSpaceMatrix");
+		shadowMapID = glGetUniformLocation(coneprogID, "shadowMap");
+        if (mvpMatrixID == -1 || lightPositionID == -1) {
+            std::cerr << "Failed to get uniform locations. (1)" << std::endl;
         }
+		if(lightSpaceMatrixID == -1 || depthlightSpaceMatrixID == -1 || shadowMapID == -1) {
+			std::cerr << "Failed to get uniform locations. (b)" << std::endl;
+		}
 
         // Unbind VAO
         glBindVertexArray(0);
     }
 
-	void render(glm::mat4 cameraMatrix)
+	void render(glm::mat4 cameraMatrix, glm::mat4 lightMatrix, GLuint depthMap)
 	{
 		glUseProgram(coneprogID);
 		glBindVertexArray(vertexArrayID);
@@ -652,6 +676,8 @@ struct spire
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 		glUniformMatrix4fv(modelMatrixID, 1, GL_FALSE, &modelMatrix[0][0]);
         glUniformMatrix3fv(normalMatrixID, 1, GL_FALSE, &normalMatrix[0][0]);
+		glUniform3fv(lightPositionID, 1, &lightPosition[0]);
+		glUniformMatrix4fv(depthlightSpaceMatrixID, 1, GL_FALSE, &lightMatrix[0][0]);
 
 		glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
@@ -665,6 +691,23 @@ struct spire
 		glBindVertexArray(0);
 	}
 
+	void renderDepth(glm::mat4 lightSpaceMatrix) {
+		glUseProgram(depthProgramID);
+
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+
+		glm::mat4 mvp = lightSpaceMatrix;
+		glUniformMatrix4fv(lightSpaceMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+		glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
+
+		glDisableVertexAttribArray(0);
+		
+	}
+
 	void cleanup()
 	{
 		glDeleteBuffers(1, &vertexBufferID);
@@ -673,6 +716,7 @@ struct spire
 		glDeleteBuffers(1, &indexBufferID);
 		glDeleteVertexArrays(1, &vertexArrayID);
 		glDeleteProgram(coneprogID);
+		glDeleteProgram(depthProgramID);
 	}
 };
 
@@ -1423,18 +1467,6 @@ GLuint createTexture(int width, int height) {
     return texture;
 }
 
-void setupFramebuffer(GLuint& fbo, GLuint& texture) {
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Error: Framebuffer is not complete!" << std::endl;
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
-
 int main(void)
 {
 	// Initialise GLFW
@@ -1498,6 +1530,24 @@ int main(void)
 	//ocean oceanSimulation;
     //oceanSimulation.initialize(glm::vec3(0, 0, 0), glm::vec3(1.0f, 1.0f, 1.0f));
 
+	// Create and activate FBO
+	GLuint depthMapFBO;
+	glGenFramebuffers(1, &depthMapFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+	GLuint depthMap;
+	glGenTextures(1, &depthMap);
+	glBindTexture(GL_TEXTURE_2D, depthMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, shadowMapWidth, shadowMapHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMap);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
 	// Camera setup
 	glm::float32 FoV = 45;
 	glm::float32 zNear = 0.1f;
@@ -1537,22 +1587,27 @@ int main(void)
 
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
-		skybox.render(vp);
 		//ground.render(vp);
-		spire.render(vp);
+		//spire.render(vp);
 		//oceanSimulation.render(vp, 1.0f, glm::vec2(10.0f, 10.0f), currentTime);
 
-		/*
+		
 		glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
 		glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
 		glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-		spire.render(lightSpaceMatrix);
-		*/
+		spire.renderDepth(lightSpaceMatrix);
 
-		GLenum err;
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		spire.render(vp, lightSpaceMatrix, depthMap);
+
+		skybox.render(vp);
+		
+
+		/*GLenum err;
 		while ((err = glGetError()) != GL_NO_ERROR) {
 			std::cerr << "OpenGL error: " << err << std::endl;
-		}
+		}*/
 
 		// FPS tracking 
 		// Count number of frames over a few seconds and take average
