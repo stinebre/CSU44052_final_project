@@ -1,21 +1,29 @@
 #version 330 core
 
-// Input
-layout(location = 0) in vec3 vertexPosition;
+layout(location = 0) in vec3 vertexPosition; // Vertex position
+layout(location = 1) in vec2 vertexUV;       // Texture coordinates
 
-// Output data, to be interpolated for each fragment
-out vec3 color;
-out vec2 uv;
+out vec2 UV; // Pass texture coordinates to fragment shader
 
-// Matrix for vertex transformation
-uniform mat4 MVP;
+uniform mat4 MVP; // Model-View-Projection matrix
 
-void main() {
-    // Transform vertex
-    gl_Position =  MVP * vec4(vertexPosition, 1);
-    
-    // Pass vertex color to the fragment shader
-    color = vec3(0.0, 0.0, 1.0);
+uniform float waveScale; // Wave scale (affects wave height)
+uniform vec2 textureScale; // Scale for texture coordinates
 
-    uv = vec2(vertexPosition.x/2.0 + 0.5, vertexPosition.y/2.0 + 0.5);
+uniform sampler2D heightMap; // The height map (output from the FFT pass)
+
+void main()
+{
+    // Fetch the height from the height map
+    float height = texture(heightMap, vertexUV).r;
+
+    // Scale the height to simulate the wave's vertical displacement
+    vec3 adjustedPosition = vertexPosition;
+    adjustedPosition.y += height * waveScale;
+
+    // Apply the MVP transformation
+    gl_Position = MVP * vec4(adjustedPosition, 1.0);
+
+    // Pass the UV coordinates to the fragment shader, with scaling
+    UV = vertexUV * textureScale;
 }

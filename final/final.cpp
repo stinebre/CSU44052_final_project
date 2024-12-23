@@ -27,7 +27,7 @@ static GLFWwindow *window;
 static int windowWidth = 1024;
 static int windowHeight = 768;
 
-// Camera
+// Camera - learnOpengl
 Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
 float lastX = windowWidth / 2.0f;
 float lastY = windowHeight / 2.0f;
@@ -91,6 +91,38 @@ static GLuint LoadTextureTileBox(const char *texture_file_path)
 	return texture;
 }
 
+// cubemap  - learnOpengl
+unsigned int loadCubemap(std::vector<std::string> faces)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    int width, height, nrChannels;
+    for (unsigned int i = 0; i < faces.size(); i++)
+    {
+        unsigned char *data = stbi_load(faces[i].c_str(), &width, &height, &nrChannels, 0);
+        if (data)
+        {
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            stbi_image_free(data);
+        }
+        else
+        {
+            std::cout << "Cubemap texture failed to load at path: " << faces[i] << std::endl;
+            stbi_image_free(data);
+        }
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+
+    return textureID;
+}
+
+// potentially redo using CubeMap
 struct box
 {
     glm::vec3 position;
@@ -384,7 +416,7 @@ struct box
 
 		// DONE: Model transform
 		// -----------------------
-		glm::mat4 modelMatrix = glm::mat4();
+		glm::mat4 modelMatrix = glm::mat4(1.0f);
 		// Translate the box
 		modelMatrix = glm::translate(modelMatrix, camera.Position);
 		// Scale the box along each axis to make it look like a building
@@ -434,111 +466,157 @@ struct box
 
 
 // DONE: Cone geometry
-// TODO: environment mapping
+// DONE: environment mapping
 // TODO: Lighting & Shadows
 struct spire
 {
-	glm::vec3 position;
-	glm::vec3 scale;
+    glm::vec3 position;
+    glm::vec3 scale;
 
-	static const int slices = 36;
-	GLfloat vertex_buffer_data[slices * 3 + 6];
-	GLfloat color_buffer_data[slices * 3 + 6];
-	GLuint index_buffer_data[slices * 6];
+    static const int slices = 36;
+    GLfloat vertex_buffer_data[slices * 3 + 6];
+    GLfloat color_buffer_data[slices * 3 + 6];
+    GLfloat normal_buffer_data[slices * 3 + 6];
+    GLuint index_buffer_data[slices * 6];
 
-	GLuint vertexArrayID;
-	GLuint vertexBufferID;
-	GLuint indexBufferID;
-	GLuint colorBufferID;
+    GLuint vertexArrayID;
+    GLuint vertexBufferID;
+    GLuint indexBufferID;
+    GLuint normalBufferID;
+    GLuint colorBufferID;
 
-	GLuint mvpMatrixID;
-	GLuint coneprogID;
+    GLuint mvpMatrixID;
+    GLuint modelMatrixID;
+    GLuint normalMatrixID;
+    GLuint coneprogID;
+    GLuint cubemapID;
 
-	void initialize(glm::vec3 position, glm::vec3 scale)
-	{
-		this->position = position;
-		this->scale = scale;
+    void initialize(glm::vec3 position, glm::vec3 scale, GLuint skyTexture)
+    {
+        this->position = position;
+        this->scale = scale;
+        this->cubemapID = skyTexture;
 
-		// Step size for the circle
-		float step = 2.0f * M_PI / slices;
+        // Step size for the circle
+        float step = 2.0f * M_PI / slices;
 
-		// Top vertex (cone tip)
-		vertex_buffer_data[0] = 0.0f;
-		vertex_buffer_data[1] = 1.0f; // Cone tip at height 1.0
-		vertex_buffer_data[2] = 0.0f;
+        // Top vertex (cone tip)
+        vertex_buffer_data[0] = 0.0f;
+        vertex_buffer_data[1] = 1.0f; // Cone tip at height 1.0
+        vertex_buffer_data[2] = 0.0f;
 
-		// Generate circle vertices
-		int vbd_index = 3;
-		for (int i = 0; i < slices; ++i)
-		{
-			float angle = i * step;
-			vertex_buffer_data[vbd_index++] = cos(angle); // X
-			vertex_buffer_data[vbd_index++] = 0.0f;       // Y (base is at y=0)
-			vertex_buffer_data[vbd_index++] = sin(angle); // Z
-		}
+        // Generate circle vertices
+        int vbd_index = 3;
+        for (int i = 0; i < slices; ++i)
+        {
+            float angle = i * step;
+            vertex_buffer_data[vbd_index++] = cos(angle); // X
+            vertex_buffer_data[vbd_index++] = 0.0f;       // Y (base is at y=0)
+            vertex_buffer_data[vbd_index++] = sin(angle); // Z
+        }
 
-		// Center vertex for the base
-		vertex_buffer_data[vbd_index++] = 0.0f; // X
-		vertex_buffer_data[vbd_index++] = 0.0f; // Y
-		vertex_buffer_data[vbd_index++] = 0.0f; // Z
+        // Center vertex for the base
+        vertex_buffer_data[vbd_index++] = 0.0f; // X
+        vertex_buffer_data[vbd_index++] = 0.0f; // Y
+        vertex_buffer_data[vbd_index++] = 0.0f; // Z
 
-		// Color data (all vertices the same color)
-		for (int i = 0; i < slices * 3 + 6; ++i)
-		{
-			color_buffer_data[i] = 0.5f; // Light gray
-		}
+        // Color data (all vertices the same color)
+        for (int i = 0; i < slices * 3 + 6; ++i)
+        {
+            color_buffer_data[i] = 0.5f; // Light gray
+        }
 
-		// Index buffer for triangles
-		int index = 0;
-		for (int i = 0; i < slices; ++i) {
-			index_buffer_data[index++] = 0; // Apex
-			index_buffer_data[index++] = 1 + ((i + 1) % slices); // Next base vertex
-			index_buffer_data[index++] = 1 + i; // Current base vertex
-		}
+        // Calculate normals
+        // Tip normal
+        normal_buffer_data[0] = 0.0f;
+        normal_buffer_data[1] = 1.0f;
+        normal_buffer_data[2] = 0.0f;
 
-		for (int i = 0; i < slices; ++i) {
-			index_buffer_data[index++] = slices + 1; // Center of the base
-			index_buffer_data[index++] = 1 + i; // Current base vertex
-			index_buffer_data[index++] = 1 + ((i + 1) % slices); // Next base vertex
-		}
+        // Base center normal (pointing downward)
+        int base_center_index = slices * 3 + 3;
+        normal_buffer_data[base_center_index] = 0.0f;
+        normal_buffer_data[base_center_index + 1] = -1.0f;
+        normal_buffer_data[base_center_index + 2] = 0.0f;
 
+        // Side and base normals
+        int normal_index = 3;
+        for (int i = 0; i < slices; ++i)
+        {
+            float angle = i * step;
+            float next_angle = (i + 1) % slices * step;
 
-		// Generate and bind VAO
-		glGenVertexArrays(1, &vertexArrayID);
-		glBindVertexArray(vertexArrayID);
+            glm::vec3 current_vertex(cos(angle), 0.0f, sin(angle));
+            glm::vec3 next_vertex(cos(next_angle), 0.0f, sin(next_angle));
 
-		// Vertex Buffer
-		glGenBuffers(1, &vertexBufferID);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
+            // Normal for the side (perpendicular to the surface)
+            glm::vec3 side_normal = glm::normalize(glm::vec3(cos(angle), 0.5f, sin(angle)));
+            normal_buffer_data[normal_index++] = side_normal.x;
+            normal_buffer_data[normal_index++] = side_normal.y;
+            normal_buffer_data[normal_index++] = side_normal.z;
+        }
 
-		// Color Buffer
-		glGenBuffers(1, &colorBufferID);
-		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
+        // Index buffer for triangles
+        int index = 0;
 
-		// Index Buffer
-		glGenBuffers(1, &indexBufferID);
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
-		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
+        // Side triangles
+        for (int i = 0; i < slices; ++i)
+        {
+            index_buffer_data[index++] = 0;                      // Apex
+            index_buffer_data[index++] = 1 + i;                 // Current base vertex
+            index_buffer_data[index++] = 1 + (i + 1) % slices;  // Next base vertex
+        }
 
-		// Load shaders
-		coneprogID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
-		if (coneprogID == 0)
-		{
-			std::cerr << "Failed to load shaders." << std::endl;
-		}
+        // Base triangles
+        for (int i = 0; i < slices; ++i)
+        {
+            index_buffer_data[index++] = slices + 1;            // Center of the base
+            index_buffer_data[index++] = 1 + (i + 1) % slices;  // Next base vertex
+            index_buffer_data[index++] = 1 + i;                 // Current base vertex
+        }
 
-		// Get MVP matrix uniform location
-		mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
-		if (mvpMatrixID == -1)
-		{
-			std::cerr << "Failed to get MVP uniform location." << std::endl;
-		}
+        // Generate and bind VAO
+        glGenVertexArrays(1, &vertexArrayID);
+        glBindVertexArray(vertexArrayID);
 
-		// Unbind VAO
-		glBindVertexArray(0);
-	}
+        // Vertex Buffer
+        glGenBuffers(1, &vertexBufferID);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
+
+        // Color Buffer
+        glGenBuffers(1, &colorBufferID);
+        glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
+
+        // Normal Buffer
+        glGenBuffers(1, &normalBufferID);
+        glBindBuffer(GL_ARRAY_BUFFER, normalBufferID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(normal_buffer_data), normal_buffer_data, GL_STATIC_DRAW);
+
+        // Index Buffer
+        glGenBuffers(1, &indexBufferID);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
+
+        // Load shaders
+        coneprogID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
+        if (coneprogID == 0)
+        {
+            std::cerr << "Failed to load shaders." << std::endl;
+        }
+
+        // Get MVP matrix uniform location
+        mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
+        modelMatrixID = glGetUniformLocation(coneprogID, "modelMatrix");
+        normalMatrixID = glGetUniformLocation(coneprogID, "normalMatrix");
+        if (mvpMatrixID == -1 || modelMatrixID == -1 || normalMatrixID == -1)
+        {
+            std::cerr << "Failed to get uniform locations." << std::endl;
+        }
+
+        // Unbind VAO
+        glBindVertexArray(0);
+    }
 
 	void render(glm::mat4 cameraMatrix)
 	{
@@ -555,6 +633,11 @@ struct spire
 		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
 		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
+		// Set up vertex normals
+        glEnableVertexAttribArray(2);
+        glBindBuffer(GL_ARRAY_BUFFER, normalBufferID);
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
 		// Bind index buffer
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
@@ -562,10 +645,16 @@ struct spire
 		glm::mat4 modelMatrix = glm::mat4(1.0f);
 		modelMatrix = glm::translate(modelMatrix, position);
 		modelMatrix = glm::scale(modelMatrix, scale);
+		glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
 
 		// Compute and set MVP matrix
 		glm::mat4 mvp = cameraMatrix * modelMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+		glUniformMatrix4fv(modelMatrixID, 1, GL_FALSE, &modelMatrix[0][0]);
+        glUniformMatrix3fv(normalMatrixID, 1, GL_FALSE, &normalMatrix[0][0]);
+
+		glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
 
 		// Draw elements
 		glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
@@ -580,6 +669,7 @@ struct spire
 	{
 		glDeleteBuffers(1, &vertexBufferID);
 		glDeleteBuffers(1, &colorBufferID);
+		glDeleteBuffers(1, &normalBufferID);
 		glDeleteBuffers(1, &indexBufferID);
 		glDeleteVertexArrays(1, &vertexArrayID);
 		glDeleteProgram(coneprogID);
@@ -587,87 +677,213 @@ struct spire
 };
 
 
-/*
 //TODO: Ocean simulation 
-struct waterTile 
-{
-	float tile_size = 60;
-	float height, x, z;
+struct ocean {
+    glm::vec3 position;
+    glm::vec3 scale;
 
-	GLfloat vertex_buffer_data[12] = {-1, -1, -1, 1, 1, -1, 1, -1, -1, 1, 1, 1 };
+    static const int grid_size = 128; // Grid size for FFT simulation
+    GLfloat vertex_buffer_data[grid_size * grid_size * 3]; // Grid vertex positions
+    GLfloat uv_buffer_data[grid_size * grid_size * 2];     // Texture coordinates
+    GLuint index_buffer_data[(grid_size - 1) * (grid_size - 1) * 6];
 
-	// OpenGL buffers
-	GLuint vertexArrayID;
-	GLuint vertexBufferID;
-	GLuint indexBufferID;
-	GLuint colorBufferID;
-	GLuint normalBufferID;
-	GLuint uvBufferID;
-    GLuint textureID;
+    GLuint vertexArrayID;
+    GLuint vertexBufferID;
+    GLuint uvBufferID;
+    GLuint indexBufferID;
 
-	// Shader variable IDs
-	GLuint mvpMatrixID;
-	GLuint programID;
-	GLuint textureSamplerID;
-	
+    GLuint oceanprogID;
 
-	void initialize(float xcoord, float zcoord, float heightval) {
-		x = xcoord;
-		z = zcoord;
-		height = heightval;
+    GLuint heightMapID;      // Uniform location for height map texture
+    GLuint mvpMatrixID;      // Uniform location for MVP matrix
+    GLuint waveScaleID;      // Uniform location for wave scale
+    GLuint textureScaleID;   // Uniform location for texture scaling
+    GLuint timeID;           // Uniform location for time
+	GLuint fftheightMapID;   
+    GLuint fftmvpMatrixID; 
+	GLuint ffttimeID; 
 
-		// Create a vertex array object
-		glGenVertexArrays(1, &vertexArrayID);
-		glBindVertexArray(vertexArrayID);
+    // FBO-related resources
+    GLuint waveFBO;
+    GLuint waveTexture;
+    GLuint fftProgramID;  // For FFT simulation program
 
-		// Create a vertex buffer object to store the vertex data
-		glGenBuffers(1, &vertexBufferID);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
-		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
+    void initialize(glm::vec3 position, glm::vec3 scale) {
+        this->position = position;
+        this->scale = scale;
 
-		// Create and compile our GLSL program from the shaders
-		programID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
-		if (programID == 0)
-		{
-			std::cerr << "Failed to load shaders." << std::endl;
-		}
+        // Vertex and UV generation for the grid
+        int index = 0, uvIndex = 0;
+        for (int z = 0; z < grid_size; ++z) {
+            for (int x = 0; x < grid_size; ++x) {
+                vertex_buffer_data[index++] = x - grid_size / 2.0f; // X
+                vertex_buffer_data[index++] = 0.0f;                 // Y (height)
+                vertex_buffer_data[index++] = z - grid_size / 2.0f; // Z
 
-		// Get a handle for our "MVP" uniform
-		mvpMatrixID = glGetUniformLocation(programID, "MVP");
-		
-		// Load a texture
-		//textureID = LoadTextureTileBox("../final/cloudySea.jpg");
+                uv_buffer_data[uvIndex++] = x / float(grid_size - 1); // U
+                uv_buffer_data[uvIndex++] = z / float(grid_size - 1); // V
+            }
+        }
 
-		// Get a handle to texture sampler
-		textureSamplerID = glGetUniformLocation(programID, "textureSampler");
-	}
+        // Generate index buffer for grid triangles
+        index = 0;
+        for (int z = 0; z < grid_size - 1; ++z) {
+            for (int x = 0; x < grid_size - 1; ++x) {
+                int top_left = z * grid_size + x;
+                int top_right = top_left + 1;
+                int bottom_left = top_left + grid_size;
+                int bottom_right = bottom_left + 1;
 
-	void render(glm::mat4 cameraMatrix) {
-		glUseProgram(programID);
+                index_buffer_data[index++] = top_left;
+                index_buffer_data[index++] = bottom_left;
+                index_buffer_data[index++] = top_right;
 
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+                index_buffer_data[index++] = top_right;
+                index_buffer_data[index++] = bottom_left;
+                index_buffer_data[index++] = bottom_right;
+            }
+        }
 
-		// Set model-view-projection matrix
-		glm::mat4 mvp = cameraMatrix;
-		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+        // Set up VAO and buffers
+        glGenVertexArrays(1, &vertexArrayID);
+        glBindVertexArray(vertexArrayID);
 
-		// Draw the box
-		glDrawElements(
-			GL_TRIANGLES,	 // mode
-			36,				 // number of indices
-			GL_UNSIGNED_INT, // type
-			(void *)0		 // element array buffer offset
-		);
+        glGenBuffers(1, &vertexBufferID);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
 
-		glDisableVertexAttribArray(0);
-	}
+        glGenBuffers(1, &uvBufferID);
+        glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(uv_buffer_data), uv_buffer_data, GL_STATIC_DRAW);
 
+        glGenBuffers(1, &indexBufferID);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
+
+        // Load shaders
+        oceanprogID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
+        fftProgramID = LoadShadersFromFile("../final/fft.vert", "../final/fft.frag");  // Assuming a custom shader for FFT
+
+        // Get uniform locations
+        mvpMatrixID = glGetUniformLocation(oceanprogID, "MVP");
+        waveScaleID = glGetUniformLocation(oceanprogID, "waveScale");
+        textureScaleID = glGetUniformLocation(oceanprogID, "textureScale");
+        heightMapID = glGetUniformLocation(oceanprogID, "heightMap");
+        timeID = glGetUniformLocation(oceanprogID, "time");
+
+		/*
+		fftmvpMatrixID = glGetUniformLocation(fftProgramID, "MVP");
+		fftheightMapID = glGetUniformLocation(fftProgramID, "heightMap");
+        ffttimeID = glGetUniformLocation(fftProgramID, "time");
+		*/
+
+        // Setup wave FBO and texture
+        setupWaveFBO();
+        glBindVertexArray(0);
+    }
+
+    void setupWaveFBO() {
+        // Create texture for wave data (height map)
+        glGenTextures(1, &waveTexture);
+        glBindTexture(GL_TEXTURE_2D, waveTexture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        // Create framebuffer and attach texture
+        glGenFramebuffers(1, &waveFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, waveFBO);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, waveTexture, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            std::cerr << "Error: Framebuffer is not complete!" << std::endl;
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void fftPass(float time) {
+        // First pass: Compute FFT simulation and store the result in the wave texture
+        glUseProgram(fftProgramID);
+        glBindFramebuffer(GL_FRAMEBUFFER, waveFBO);
+        glViewport(0, 0, grid_size, grid_size);
+
+        glUniform1f(timeID, time);  // Pass the time uniform for the simulation
+
+        // Render a quad (or grid) to compute the FFT
+        // Use the quad or grid-rendering technique here to apply the FFT shader
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    }
+
+    void renderPass(glm::mat4 cameraMatrix, float waveScale, glm::vec2 textureScale, float time) {
+        // Second pass: Render the ocean surface using the computed height map (wave texture)
+        glUseProgram(oceanprogID);
+        glBindVertexArray(vertexArrayID);
+
+        // Set up vertex positions
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+
+        // Set up UV coordinates
+        glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+
+        // Bind index buffer
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+
+        // Model transformation
+        glm::mat4 modelMatrix = glm::mat4(1.0f);
+        modelMatrix = glm::translate(modelMatrix, position);
+        modelMatrix = glm::scale(modelMatrix, scale);
+
+        // Compute and set MVP matrix
+        glm::mat4 mvp = cameraMatrix * modelMatrix;
+        glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+        // Set additional uniforms
+        glUniform1f(waveScaleID, waveScale);
+        glUniform2f(textureScaleID, textureScale.x, textureScale.y);
+        glUniform1f(timeID, time);
+
+        // Bind the wave height map texture (from FFT pass)
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, waveTexture);
+        glUniform1i(heightMapID, 0);
+
+        // Draw elements (the ocean surface)
+        glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, 0);
+
+        // Reset state
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glBindVertexArray(0);
+    }
+
+    void render(glm::mat4 cameraMatrix, float waveScale, glm::vec2 textureScale, float time) {
+        // First, run the FFT pass to compute the wave heights
+        fftPass(time);
+
+        // Then render the ocean surface using the computed height map
+        renderPass(cameraMatrix, waveScale, textureScale, time);
+    }
+
+    void cleanup() {
+        glDeleteBuffers(1, &vertexBufferID);
+        glDeleteBuffers(1, &uvBufferID);
+        glDeleteBuffers(1, &indexBufferID);
+        glDeleteVertexArrays(1, &vertexArrayID);
+        glDeleteProgram(oceanprogID);
+
+        glDeleteTextures(1, &waveTexture);
+        glDeleteFramebuffers(1, &waveFBO);
+    }
 };
-*/
 
-/*
 //TODO: Model animation
 struct korok {
 	// Shader variable IDs
@@ -1194,8 +1410,30 @@ struct korok {
 		glDeleteProgram(programID);
 	}
 }; 
-*/
 
+GLuint createTexture(int width, int height) {
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return texture;
+}
+
+void setupFramebuffer(GLuint& fbo, GLuint& texture) {
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        std::cerr << "Error: Framebuffer is not complete!" << std::endl;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
 
 int main(void)
 {
@@ -1245,18 +1483,20 @@ int main(void)
 	box skybox;
 	skybox.initialize(camera.Position, glm::vec3(100, 100, 100));
 
-	box ground;
-	ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
+	//box ground;
+	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
 
+	std::vector<std::string> faces = {
+		"../final/right.jpg", "../final/left.jpg",
+		"../final/top.jpg", "../final/bottom.jpg",
+		"../final/front.jpg", "../final/back.jpg"
+	};
+	GLuint cubemapTexture = loadCubemap(faces);
 	spire spire;
-	spire.initialize(glm::vec3(0, -10, -30), glm::vec3(3, 30, 3));
+	spire.initialize(glm::vec3(0, -10, -30), glm::vec3(3, 30, 3), cubemapTexture);
 
-	/* water
-	std::list <waterTile> waterTiles;
-	waterTile t;
-	t.initialize(75, -75, 0);
-	waterTiles.push_back(t);
-	*/
+	//ocean oceanSimulation;
+    //oceanSimulation.initialize(glm::vec3(0, 0, 0), glm::vec3(1.0f, 1.0f, 1.0f));
 
 	// Camera setup
 	glm::float32 FoV = 45;
@@ -1275,6 +1515,7 @@ int main(void)
 	do
 	{
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		
 
 		// Update states for animation
         double currentTime = glfwGetTime();
@@ -1292,13 +1533,14 @@ int main(void)
 
 		// view/projection transformations
         glm::mat4 viewMatrix = camera.GetViewMatrix();
+		
 
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
 		skybox.render(vp);
-		ground.render(vp);
+		//ground.render(vp);
 		spire.render(vp);
-
+		//oceanSimulation.render(vp, 1.0f, glm::vec2(10.0f, 10.0f), currentTime);
 
 		/*
 		glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
@@ -1306,6 +1548,11 @@ int main(void)
 		glm::mat4 lightSpaceMatrix = lightProjection * lightView;
 		spire.render(lightSpaceMatrix);
 		*/
+
+		GLenum err;
+		while ((err = glGetError()) != GL_NO_ERROR) {
+			std::cerr << "OpenGL error: " << err << std::endl;
+		}
 
 		// FPS tracking 
 		// Count number of frames over a few seconds and take average
@@ -1331,7 +1578,8 @@ int main(void)
 	// Clean up
 	skybox.cleanup();
 	spire.cleanup();
-	ground.cleanup();
+	//oceanSimulation.cleanup();
+	//ground.cleanup();
 
 	// Close OpenGL window and terminate GLFW
 	glfwTerminate();
