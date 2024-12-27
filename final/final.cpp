@@ -28,7 +28,7 @@ static int windowWidth = 1024;
 static int windowHeight = 768;
 
 // Camera - learnOpengl
-Camera camera(glm::vec3(0.0f, 10.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 5.0f, 3.0f));
 float lastX = windowWidth / 2.0f;
 float lastY = windowHeight / 2.0f;
 bool firstMouse = true;
@@ -730,12 +730,12 @@ struct spire
 };
 
 
-//TODO: Ocean simulation 
+//DONE: Ocean simulation 
 struct ocean {
     glm::vec3 position;
     glm::vec3 scale;
 
-    static const int grid_size = 128;
+    static const int grid_size = 128*2;
     GLfloat vertex_buffer_data[grid_size * grid_size * 3];
     GLfloat uv_buffer_data[grid_size * grid_size * 2];
     GLuint index_buffer_data[(grid_size - 1) * (grid_size - 1) * 6];
@@ -760,6 +760,7 @@ struct ocean {
     GLuint lightDirID;
     GLuint lightColorID;
     GLuint ambientColorID;
+	GLuint cameraPosID;
 
     GLuint quadVAO, quadVBO;
 
@@ -827,6 +828,7 @@ struct ocean {
         lightDirID = glGetUniformLocation(oceanShaderID, "lightDir");
         lightColorID = glGetUniformLocation(oceanShaderID, "lightColor");
         ambientColorID = glGetUniformLocation(oceanShaderID, "ambientColor");
+		cameraPosID = glGetUniformLocation(oceanShaderID, "cameraPos");
 
         // Create FBO and textures
         setupFBO();
@@ -984,6 +986,7 @@ struct ocean {
         glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
         glm::vec3 lightColor = glm::vec3(0.8f, 0.8f, 1.0f);
         glm::vec3 ambientColor = glm::vec3(0.2f, 0.2f, 0.5f);
+		glm::vec3 cameraPos = camera.Position;
 
         glUniform3fv(lightDirID, 1, &lightDir[0]);
         glUniform3fv(lightColorID, 1, &lightColor[0]);
@@ -1683,11 +1686,11 @@ int main(void)
         glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
         glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
         glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-        //spire.renderDepth(lightSpaceMatrix);
+        spire.renderDepth(lightSpaceMatrix);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        //spire.render(vp, lightSpaceMatrix, depthMap);
+        spire.render(vp, lightSpaceMatrix, depthMap);
 		oceanSimulation.render(vp, currentTime);
 
         skybox.render(vp);
