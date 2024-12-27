@@ -33,3 +33,16 @@ void main()
     // Output the combined result
     FragColor = vec4(combined, 0.0, 1.0);
 }
+
+/* simple but working
+#version 330 core
+in vec2 UV;
+out vec4 FragColor;
+
+uniform float time;
+
+void main() {
+    float wave = sin(UV.x * 10.0 + time);
+    FragColor = vec4(wave, 0.0, 0.0, 1.0);
+}
+*/

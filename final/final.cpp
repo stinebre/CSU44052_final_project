@@ -839,20 +839,35 @@ struct ocean {
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 		glGenTextures(1, &intermediateTexture);
 		glBindTexture(GL_TEXTURE_2D, intermediateTexture);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 		glGenFramebuffers(1, &waveFBOHorizontal);
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, intermediateTexture, 0); // Intermediate texture
 
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+			std::cerr << "Horizontal FBO not complete!" << std::endl;
+		}
+
 		glGenFramebuffers(1, &waveFBOVertical);
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
 		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightMapTexture, 0); // Final height map texture
+
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+			std::cerr << "Vertical FBO not complete!" << std::endl;
+		}
+
 
 		glBindFramebuffer(GL_FRAMEBUFFER, 0); // Unbind FBO
     }
@@ -884,31 +899,17 @@ struct ocean {
     }
 
     void fftHorizontalPass(float time, int numPass) {
-        glUseProgram(fftShaderHorizontalID);
-        glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
+		glUseProgram(fftShaderHorizontalID);
 
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture);  // Use height map for the first pass or intermediate texture for subsequent passes
-    	glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "inputTexture"), 0); // Texture unit 0
-        glUniform1f(glGetUniformLocation(fftShaderHorizontalID, "time"), time);
-		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 
-        glBindVertexArray(quadVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glBindVertexArray(0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture); // Use heightMapTexture as input for the first pass
+		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "inputTexture"), 0);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
-
-	void fftVerticalPass(float time, int numPass) {
-		glUseProgram(fftShaderVerticalID);
-		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
-
-		glBindTexture(GL_TEXTURE_2D, intermediateTexture);
-		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "horizontalPassTexture"), 0);
-
-		// Pass the time uniform to the vertical pass shader
-		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "time"), time);
-		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
+		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "width"), grid_size);
+		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "passNumber"), numPass);
+		glUniform1f(glGetUniformLocation(fftShaderHorizontalID, "time"), time);
 
 		glBindVertexArray(quadVAO);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -917,13 +918,47 @@ struct ocean {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
+
+	void fftVerticalPass(float time, int numPass) {
+		glUseProgram(fftShaderVerticalID);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, intermediateTexture); // Use intermediateTexture as input
+		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "horizontalPassTexture"), 0);
+
+		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "width"), grid_size);
+		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
+		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "time"), time);
+
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+
     void render(glm::mat4 cameraMatrix, float time) {
-		
+
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT);
+
 		int numPasses = int(log2(float(grid_size)));
     	for (int pass = 0; pass < numPasses; ++pass) {
 			fftHorizontalPass(time, pass);
 			fftVerticalPass(time, pass);
 		}
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
+		glUniform1i(heightMapID, 0);
 
         glUseProgram(oceanShaderID);
         glBindVertexArray(vertexArrayID);
@@ -944,10 +979,6 @@ struct ocean {
 
         glm::mat4 mvpMatrix = cameraMatrix * modelMatrix;
         glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvpMatrix[0][0]);
-
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
-		glUniform1i(heightMapID, 0);
 
         // Pass lighting and ambient data
         glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
@@ -1586,7 +1617,7 @@ int main(void)
 	};
 	GLuint cubemapTexture = loadCubemap(faces);
 	spire spire;
-	spire.initialize(glm::vec3(0, 1, -30), glm::vec3(3, 30, 3), cubemapTexture);
+	spire.initialize(glm::vec3(0, 0.01, -30), glm::vec3(3, 30, 3), cubemapTexture);
 
 	//MyBot k;
 	//k.initialize();
@@ -1652,11 +1683,11 @@ int main(void)
         glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
         glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
         glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-        spire.renderDepth(lightSpaceMatrix);
+        //spire.renderDepth(lightSpaceMatrix);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        spire.render(vp, lightSpaceMatrix, depthMap);
+        //spire.render(vp, lightSpaceMatrix, depthMap);
 		oceanSimulation.render(vp, currentTime);
 
         skybox.render(vp);

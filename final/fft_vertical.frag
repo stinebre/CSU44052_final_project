@@ -32,3 +32,17 @@ void main()
     // Write the result
     FragColor = vec4(combined, 0.0, 1.0);
 }
+
+/* simple but working 
+#version 330 core
+in vec2 UV;
+out vec4 FragColor;
+
+uniform sampler2D horizontalPassTexture;
+
+void main() {
+    float wave = texture(horizontalPassTexture, UV).r * cos(UV.y * 10.0);
+    FragColor = vec4(wave, 0.0, 0.0, 1.0);
+}
+*/
+
