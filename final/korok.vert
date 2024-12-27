@@ -6,13 +6,14 @@ layout(location = 1) in vec3 vertexNormal;
 layout(location = 2) in vec2 vertexUV;
 layout(location = 3) in vec4 a_joint;
 layout(location = 4) in vec4 a_weight;
+//add texcoord
 
 // Output data, to be interpolated for each fragment
 out vec3 worldPosition;
 out vec3 worldNormal;
 
 uniform mat4 MVP;
-uniform mat4 u_jointMatrix[25]; 
+uniform mat4 u_jointMatrix[50]; 
 
 void main() {
 

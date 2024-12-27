@@ -1,24 +1,19 @@
 #version 330 core
+in vec2 fragUV;
 
-in vec2 UV; // Texture coordinates from the vertex shader
+uniform sampler2D heightMap;
+uniform vec3 lightDir;
+uniform vec3 lightColor;
+uniform vec3 ambientColor;
 
-out vec4 FragColor; // Output color
+out vec4 FragColor;
 
-uniform sampler2D heightMap; // The height map (output from the FFT pass)
-uniform sampler2D oceanTexture; // The ocean texture (e.g., normal map or color map)
-uniform vec2 textureScale; // Texture scaling factor
+void main() {
+    float height = texture(heightMap, fragUV).r;
+    vec3 normal = normalize(vec3(0.0, 1.0, 0.0) + height * vec3(0.1, 1.0, 0.1));
 
-void main()
-{
-    // Sample the height map at the current UV coordinates
-    float height = texture(heightMap, UV).r;
+    float diffuse = max(dot(normal, -lightDir), 0.0);
+    vec3 color = ambientColor + diffuse * lightColor;
 
-    // Fetch the color from the ocean texture using the scaled UV coordinates
-    vec3 oceanColor = texture(oceanTexture, UV * textureScale).rgb;
-
-    // Combine the height with the texture color for the final ocean appearance
-    vec3 finalColor = oceanColor * (1.0 - height); // The height value could be used to modify shading or texture
-
-    // Output the final color
-    FragColor = vec4(finalColor, 1.0);
+    FragColor = vec4(color, 1.0);
 }

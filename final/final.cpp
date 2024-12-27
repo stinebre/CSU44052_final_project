@@ -28,7 +28,7 @@ static int windowWidth = 1024;
 static int windowHeight = 768;
 
 // Camera - learnOpengl
-Camera camera(glm::vec3(0.0f, 0.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 10.0f, 3.0f));
 float lastX = windowWidth / 2.0f;
 float lastY = windowHeight / 2.0f;
 bool firstMouse = true;
@@ -47,8 +47,14 @@ const glm::vec3 wave500(0.0f, 255.0f, 146.0f);
 const glm::vec3 wave600(255.0f, 190.0f, 0.0f);
 const glm::vec3 wave700(205.0f, 0.0f, 0.0f);
 static glm::vec3 lightIntensity = 5.0f * (8.0f * wave500 + 15.6f * wave600 + 18.4f * wave700);
-static glm::vec3 lightPosition(-275.0f, 500.0f, -275.0f);
-static glm::vec3 lightDir(0.0f, -1.0f, 0.0f);
+static glm::vec3 lightPosition(-27.0f, 500.0f, -275.0f);
+static glm::vec3 lightDir(-1.0f, -1.0f, -1.0f);
+
+// Shadow mapping
+static glm::vec3 lightUp(0, 0, 1);
+static int shadowMapWidth = 1024;
+static int shadowMapHeight = 1024;
+glm::mat4 lightProjection, lightSpaceView, lightSpaceMatrix;
 
 // Shadows
 static float depthFoV = 100.0f; 
@@ -60,7 +66,7 @@ static bool playAnimation = true;
 static float playbackSpeed = 2.0f;
 
 // timing - learnOpengl
-float deltaTime = 0.0f;	// time between current frame and last frame
+float deltaTime = 0.0f; // time between current frame and last frame
 float lastFrame = 0.0f;
 
 static GLuint LoadTextureTileBox(const char *texture_file_path)
@@ -468,6 +474,7 @@ struct box
 // DONE: Cone geometry
 // DONE: environment mapping
 // TODO: Lighting & Shadows
+// TODO: Level of detail
 struct spire
 {
     glm::vec3 position;
@@ -485,17 +492,29 @@ struct spire
     GLuint normalBufferID;
     GLuint colorBufferID;
 
-    GLuint mvpMatrixID;
+    GLuint lightPositionID;
+    GLuint depthProgramID;
+    GLuint lightSpaceMatrixID;
+    GLuint depthlightSpaceMatrixID;
+    GLuint shadowMapID;
+
     GLuint modelMatrixID;
     GLuint normalMatrixID;
+    GLuint mvpMatrixID;
     GLuint coneprogID;
     GLuint cubemapID;
 
-    void initialize(glm::vec3 position, glm::vec3 scale, GLuint skyTexture)
+   void initialize(glm::vec3 position, glm::vec3 scale, GLuint skyTexture)
     {
         this->position = position;
         this->scale = scale;
         this->cubemapID = skyTexture;
+
+		glEnable(GL_DEPTH_TEST);
+		glEnable(GL_CULL_FACE);
+		glCullFace(GL_BACK);
+		glFrontFace(GL_CCW);
+
 
         // Step size for the circle
         float step = 2.0f * M_PI / slices;
@@ -605,75 +624,109 @@ struct spire
             std::cerr << "Failed to load shaders." << std::endl;
         }
 
-        // Get MVP matrix uniform location
+        depthProgramID = LoadShadersFromFile("../final/depth.vert", "../final/depth.frag");
+        if (depthProgramID == 0)
+        {
+            std::cerr << "Failed to load depth shaders." << std::endl;
+        }
+
+        // Get matrix uniform locations
         mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
         modelMatrixID = glGetUniformLocation(coneprogID, "modelMatrix");
         normalMatrixID = glGetUniformLocation(coneprogID, "normalMatrix");
-        if (mvpMatrixID == -1 || modelMatrixID == -1 || normalMatrixID == -1)
-        {
-            std::cerr << "Failed to get uniform locations." << std::endl;
+        lightPositionID = glGetUniformLocation(coneprogID, "lightPosition");
+        lightSpaceMatrixID = glGetUniformLocation(depthProgramID, "lightSpaceMatrix");
+        depthlightSpaceMatrixID = glGetUniformLocation(coneprogID, "lightSpaceMatrix");
+        shadowMapID = glGetUniformLocation(coneprogID, "shadowMap");
+        if (mvpMatrixID == -1 || lightPositionID == -1) {
+            std::cerr << "Failed to get uniform locations. (1)" << std::endl;
+        }
+        if(lightSpaceMatrixID == -1 || depthlightSpaceMatrixID == -1 || shadowMapID == -1) {
+            std::cerr << "Failed to get uniform locations. (2)" << std::endl;
         }
 
         // Unbind VAO
         glBindVertexArray(0);
     }
 
-	void render(glm::mat4 cameraMatrix)
-	{
-		glUseProgram(coneprogID);
-		glBindVertexArray(vertexArrayID);
+    void render(glm::mat4 cameraMatrix, glm::mat4 lightMatrix, GLuint depthMap)
+    {
+        glUseProgram(coneprogID);
+        glBindVertexArray(vertexArrayID);
 
-		// Set up vertex positions
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        // Set up vertex positions
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-		// Set up vertex colors
-		glEnableVertexAttribArray(1);
-		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        // Set up vertex colors
+        glEnableVertexAttribArray(1);
+        glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-		// Set up vertex normals
+        // Set up vertex normals
         glEnableVertexAttribArray(2);
         glBindBuffer(GL_ARRAY_BUFFER, normalBufferID);
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-		// Bind index buffer
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+        // Bind index buffer
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
-		// Model transformation
-		glm::mat4 modelMatrix = glm::mat4(1.0f);
-		modelMatrix = glm::translate(modelMatrix, position);
-		modelMatrix = glm::scale(modelMatrix, scale);
-		glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
+        // Model transformation
+        glm::mat4 modelMatrix = glm::mat4(1.0f);
+        modelMatrix = glm::translate(modelMatrix, position);
+        modelMatrix = glm::scale(modelMatrix, scale);
+        glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
+		lightPosition = glm::vec3(cameraMatrix * glm::vec4(lightPosition, 1.0f));
 
-		// Compute and set MVP matrix
-		glm::mat4 mvp = cameraMatrix * modelMatrix;
-		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
-		glUniformMatrix4fv(modelMatrixID, 1, GL_FALSE, &modelMatrix[0][0]);
+        // Compute and set MVP matrix
+        glm::mat4 mvp = cameraMatrix * modelMatrix;
+        glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+        glUniformMatrix4fv(modelMatrixID, 1, GL_FALSE, &modelMatrix[0][0]);
         glUniformMatrix3fv(normalMatrixID, 1, GL_FALSE, &normalMatrix[0][0]);
+        glUniform3fv(lightPositionID, 1, &lightPosition[0]);
+        glUniformMatrix4fv(depthlightSpaceMatrixID, 1, GL_FALSE, &lightMatrix[0][0]);
 
-		glActiveTexture(GL_TEXTURE0);
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
 
-		// Draw elements
-		glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
+        // Draw elements
+        glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
 
-		// Reset state
-		glDisableVertexAttribArray(0);
-		glDisableVertexAttribArray(1);
-		glBindVertexArray(0);
-	}
+        // Reset state
+        glDisableVertexAttribArray(0);
+        glDisableVertexAttribArray(1);
+        glBindVertexArray(0);
+    }
 
-	void cleanup()
-	{
-		glDeleteBuffers(1, &vertexBufferID);
-		glDeleteBuffers(1, &colorBufferID);
-		glDeleteBuffers(1, &normalBufferID);
-		glDeleteBuffers(1, &indexBufferID);
-		glDeleteVertexArrays(1, &vertexArrayID);
-		glDeleteProgram(coneprogID);
-	}
+    void renderDepth(glm::mat4 lightSpaceMatrix) {
+        glUseProgram(depthProgramID);
+		glBindVertexArray(vertexArrayID);
+
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+
+        glm::mat4 mvp = lightSpaceMatrix;
+        glUniformMatrix4fv(lightSpaceMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+        glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
+
+        glDisableVertexAttribArray(0);
+        
+    }
+
+    void cleanup()
+    {
+        glDeleteBuffers(1, &vertexBufferID);
+        glDeleteBuffers(1, &colorBufferID);
+        glDeleteBuffers(1, &normalBufferID);
+        glDeleteBuffers(1, &indexBufferID);
+        glDeleteVertexArrays(1, &vertexArrayID);
+        glDeleteProgram(coneprogID);
+        glDeleteProgram(depthProgramID);
+    }
 };
 
 
@@ -682,9 +735,9 @@ struct ocean {
     glm::vec3 position;
     glm::vec3 scale;
 
-    static const int grid_size = 128; // Grid size for FFT simulation
-    GLfloat vertex_buffer_data[grid_size * grid_size * 3]; // Grid vertex positions
-    GLfloat uv_buffer_data[grid_size * grid_size * 2];     // Texture coordinates
+    static const int grid_size = 128;
+    GLfloat vertex_buffer_data[grid_size * grid_size * 3];
+    GLfloat uv_buffer_data[grid_size * grid_size * 2];
     GLuint index_buffer_data[(grid_size - 1) * (grid_size - 1) * 6];
 
     GLuint vertexArrayID;
@@ -692,59 +745,60 @@ struct ocean {
     GLuint uvBufferID;
     GLuint indexBufferID;
 
-    GLuint oceanprogID;
+    GLuint oceanShaderID;
+    GLuint fftShaderHorizontalID;
+    GLuint fftShaderVerticalID;
 
-    GLuint heightMapID;      // Uniform location for height map texture
-    GLuint mvpMatrixID;      // Uniform location for MVP matrix
-    GLuint waveScaleID;      // Uniform location for wave scale
-    GLuint textureScaleID;   // Uniform location for texture scaling
-    GLuint timeID;           // Uniform location for time
-	GLuint fftheightMapID;   
-    GLuint fftmvpMatrixID; 
-	GLuint ffttimeID; 
+    GLuint heightMapTexture;
+    GLuint intermediateTexture;
+    GLuint waveFBOHorizontal;
+    GLuint waveFBOVertical;
 
-    // FBO-related resources
-    GLuint waveFBO;
-    GLuint waveTexture;
-    GLuint fftProgramID;  // For FFT simulation program
+    GLuint mvpMatrixID;
+    GLuint heightMapID;
+    
+    GLuint lightDirID;
+    GLuint lightColorID;
+    GLuint ambientColorID;
+
+    GLuint quadVAO, quadVBO;
 
     void initialize(glm::vec3 position, glm::vec3 scale) {
         this->position = position;
         this->scale = scale;
 
-        // Vertex and UV generation for the grid
-        int index = 0, uvIndex = 0;
+        // Generate vertex and UV data for a grid
+        int vertexIndex = 0, uvIndex = 0;
         for (int z = 0; z < grid_size; ++z) {
             for (int x = 0; x < grid_size; ++x) {
-                vertex_buffer_data[index++] = x - grid_size / 2.0f; // X
-                vertex_buffer_data[index++] = 0.0f;                 // Y (height)
-                vertex_buffer_data[index++] = z - grid_size / 2.0f; // Z
+                vertex_buffer_data[vertexIndex++] = x - grid_size / 2.0f;
+                vertex_buffer_data[vertexIndex++] = 0.0f;
+                vertex_buffer_data[vertexIndex++] = z - grid_size / 2.0f;
 
-                uv_buffer_data[uvIndex++] = x / float(grid_size - 1); // U
-                uv_buffer_data[uvIndex++] = z / float(grid_size - 1); // V
+                uv_buffer_data[uvIndex++] = x / float(grid_size - 1);
+                uv_buffer_data[uvIndex++] = z / float(grid_size - 1);
             }
         }
 
-        // Generate index buffer for grid triangles
-        index = 0;
+        // Generate index buffer for the grid
+        int index = 0;
         for (int z = 0; z < grid_size - 1; ++z) {
             for (int x = 0; x < grid_size - 1; ++x) {
-                int top_left = z * grid_size + x;
-                int top_right = top_left + 1;
-                int bottom_left = top_left + grid_size;
-                int bottom_right = bottom_left + 1;
+                int topLeft = z * grid_size + x;
+                int topRight = topLeft + 1;
+                int bottomLeft = topLeft + grid_size;
+                int bottomRight = bottomLeft + 1;
 
-                index_buffer_data[index++] = top_left;
-                index_buffer_data[index++] = bottom_left;
-                index_buffer_data[index++] = top_right;
-
-                index_buffer_data[index++] = top_right;
-                index_buffer_data[index++] = bottom_left;
-                index_buffer_data[index++] = bottom_right;
+                index_buffer_data[index++] = topLeft;
+                index_buffer_data[index++] = bottomLeft;
+                index_buffer_data[index++] = topRight;
+                index_buffer_data[index++] = topRight;
+                index_buffer_data[index++] = bottomLeft;
+                index_buffer_data[index++] = bottomRight;
             }
         }
 
-        // Set up VAO and buffers
+        // Create VAO and buffers
         glGenVertexArrays(1, &vertexArrayID);
         glBindVertexArray(vertexArrayID);
 
@@ -761,115 +815,158 @@ struct ocean {
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
         // Load shaders
-        oceanprogID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
-        fftProgramID = LoadShadersFromFile("../final/fft.vert", "../final/fft.frag");  // Assuming a custom shader for FFT
+        oceanShaderID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
+        fftShaderHorizontalID = LoadShadersFromFile("../final/fft_horizontal.vert", "../final/fft_horizontal.frag");
+        fftShaderVerticalID = LoadShadersFromFile("../final/fft_vertical.vert", "../final/fft_vertical.frag");
 
         // Get uniform locations
-        mvpMatrixID = glGetUniformLocation(oceanprogID, "MVP");
-        waveScaleID = glGetUniformLocation(oceanprogID, "waveScale");
-        textureScaleID = glGetUniformLocation(oceanprogID, "textureScale");
-        heightMapID = glGetUniformLocation(oceanprogID, "heightMap");
-        timeID = glGetUniformLocation(oceanprogID, "time");
+        mvpMatrixID = glGetUniformLocation(oceanShaderID, "MVP");
+        heightMapID = glGetUniformLocation(oceanShaderID, "heightMap");
 
-		/*
-		fftmvpMatrixID = glGetUniformLocation(fftProgramID, "MVP");
-		fftheightMapID = glGetUniformLocation(fftProgramID, "heightMap");
-        ffttimeID = glGetUniformLocation(fftProgramID, "time");
-		*/
+        // Get lighting uniform locations
+        lightDirID = glGetUniformLocation(oceanShaderID, "lightDir");
+        lightColorID = glGetUniformLocation(oceanShaderID, "lightColor");
+        ambientColorID = glGetUniformLocation(oceanShaderID, "ambientColor");
 
-        // Setup wave FBO and texture
-        setupWaveFBO();
+        // Create FBO and textures
+        setupFBO();
+        setupFullScreenQuad();
+    }
+
+    void setupFBO() {
+        glGenTextures(1, &heightMapTexture);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		glGenTextures(1, &intermediateTexture);
+		glBindTexture(GL_TEXTURE_2D, intermediateTexture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+		glGenFramebuffers(1, &waveFBOHorizontal);
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, intermediateTexture, 0); // Intermediate texture
+
+		glGenFramebuffers(1, &waveFBOVertical);
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightMapTexture, 0); // Final height map texture
+
+		glBindFramebuffer(GL_FRAMEBUFFER, 0); // Unbind FBO
+    }
+
+    void setupFullScreenQuad() {
+        GLfloat quadVertices[] = {
+            // Positions   // UVs
+            -1.0f, -1.0f,  0.0f, 0.0f,
+            1.0f, -1.0f,  1.0f, 0.0f,
+            -1.0f,  1.0f,  0.0f, 1.0f,
+            1.0f,  1.0f,  1.0f, 1.0f,
+        };
+
+        glGenVertexArrays(1, &quadVAO);
+        glBindVertexArray(quadVAO);
+
+        glGenBuffers(1, &quadVBO);
+        glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+        // Set up vertex attributes
+        glEnableVertexAttribArray(0); // Position
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)0);
+
+        glEnableVertexAttribArray(1); // UV
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)(2 * sizeof(GLfloat)));
+
         glBindVertexArray(0);
     }
 
-    void setupWaveFBO() {
-        // Create texture for wave data (height map)
-        glGenTextures(1, &waveTexture);
-        glBindTexture(GL_TEXTURE_2D, waveTexture);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, grid_size, grid_size, 0, GL_RED, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    void fftHorizontalPass(float time, int numPass) {
+        glUseProgram(fftShaderHorizontalID);
+        glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 
-        // Create framebuffer and attach texture
-        glGenFramebuffers(1, &waveFBO);
-        glBindFramebuffer(GL_FRAMEBUFFER, waveFBO);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, waveTexture, 0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture);  // Use height map for the first pass or intermediate texture for subsequent passes
+    	glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "inputTexture"), 0); // Texture unit 0
+        glUniform1f(glGetUniformLocation(fftShaderHorizontalID, "time"), time);
+		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
 
-        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            std::cerr << "Error: Framebuffer is not complete!" << std::endl;
-        }
+        glBindVertexArray(quadVAO);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(0);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
     }
 
-    void fftPass(float time) {
-        // First pass: Compute FFT simulation and store the result in the wave texture
-        glUseProgram(fftProgramID);
-        glBindFramebuffer(GL_FRAMEBUFFER, waveFBO);
-        glViewport(0, 0, grid_size, grid_size);
+	void fftVerticalPass(float time, int numPass) {
+		glUseProgram(fftShaderVerticalID);
+		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
 
-        glUniform1f(timeID, time);  // Pass the time uniform for the simulation
+		glBindTexture(GL_TEXTURE_2D, intermediateTexture);
+		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "horizontalPassTexture"), 0);
 
-        // Render a quad (or grid) to compute the FFT
-        // Use the quad or grid-rendering technique here to apply the FFT shader
+		// Pass the time uniform to the vertical pass shader
+		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "time"), time);
+		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
+		glBindVertexArray(quadVAO);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glBindVertexArray(0);
 
-    void renderPass(glm::mat4 cameraMatrix, float waveScale, glm::vec2 textureScale, float time) {
-        // Second pass: Render the ocean surface using the computed height map (wave texture)
-        glUseProgram(oceanprogID);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+    void render(glm::mat4 cameraMatrix, float time) {
+		
+		int numPasses = int(log2(float(grid_size)));
+    	for (int pass = 0; pass < numPasses; ++pass) {
+			fftHorizontalPass(time, pass);
+			fftVerticalPass(time, pass);
+		}
+
+        glUseProgram(oceanShaderID);
         glBindVertexArray(vertexArrayID);
 
-        // Set up vertex positions
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-        // Set up UV coordinates
         glEnableVertexAttribArray(1);
         glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
 
-        // Bind index buffer
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
-        // Model transformation
         glm::mat4 modelMatrix = glm::mat4(1.0f);
         modelMatrix = glm::translate(modelMatrix, position);
         modelMatrix = glm::scale(modelMatrix, scale);
 
-        // Compute and set MVP matrix
-        glm::mat4 mvp = cameraMatrix * modelMatrix;
-        glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
+        glm::mat4 mvpMatrix = cameraMatrix * modelMatrix;
+        glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvpMatrix[0][0]);
 
-        // Set additional uniforms
-        glUniform1f(waveScaleID, waveScale);
-        glUniform2f(textureScaleID, textureScale.x, textureScale.y);
-        glUniform1f(timeID, time);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
+		glUniform1i(heightMapID, 0);
 
-        // Bind the wave height map texture (from FFT pass)
+        // Pass lighting and ambient data
+        glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
+        glm::vec3 lightColor = glm::vec3(0.8f, 0.8f, 1.0f);
+        glm::vec3 ambientColor = glm::vec3(0.2f, 0.2f, 0.5f);
+
+        glUniform3fv(lightDirID, 1, &lightDir[0]);
+        glUniform3fv(lightColorID, 1, &lightColor[0]);
+        glUniform3fv(ambientColorID, 1, &ambientColor[0]);
+
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, waveTexture);
+        glBindTexture(GL_TEXTURE_2D, heightMapTexture);
         glUniform1i(heightMapID, 0);
 
-        // Draw elements (the ocean surface)
-        glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, nullptr);
 
-        // Reset state
         glDisableVertexAttribArray(0);
         glDisableVertexAttribArray(1);
         glBindVertexArray(0);
-    }
-
-    void render(glm::mat4 cameraMatrix, float waveScale, glm::vec2 textureScale, float time) {
-        // First, run the FFT pass to compute the wave heights
-        fftPass(time);
-
-        // Then render the ocean surface using the computed height map
-        renderPass(cameraMatrix, waveScale, textureScale, time);
     }
 
     void cleanup() {
@@ -877,15 +974,20 @@ struct ocean {
         glDeleteBuffers(1, &uvBufferID);
         glDeleteBuffers(1, &indexBufferID);
         glDeleteVertexArrays(1, &vertexArrayID);
-        glDeleteProgram(oceanprogID);
-
-        glDeleteTextures(1, &waveTexture);
-        glDeleteFramebuffers(1, &waveFBO);
+        glDeleteProgram(oceanShaderID);
+        glDeleteProgram(fftShaderHorizontalID);
+        glDeleteProgram(fftShaderVerticalID);
+        glDeleteTextures(1, &heightMapTexture);
+        glDeleteTextures(1, &intermediateTexture);
+        glDeleteFramebuffers(1, &waveFBOHorizontal);
+        glDeleteFramebuffers(1, &waveFBOVertical);
+        glDeleteBuffers(1, &quadVBO);
+        glDeleteVertexArrays(1, &quadVAO);
     }
 };
 
 //TODO: Model animation
-struct korok {
+struct MyBot {
 	// Shader variable IDs
 	GLuint mvpMatrixID;
 	GLuint jointMatricesID;
@@ -955,6 +1057,8 @@ struct korok {
 		int nodeIndex, 
 		std::vector<glm::mat4> &localTransforms)
 	{
+		// DONE: your code here
+		// ---------------------------------------
 		const tinygltf::Node& node = model.nodes[nodeIndex];
 		localTransforms[nodeIndex] = getNodeTransform(node);
 		for (int childIndex : node.children) {
@@ -968,6 +1072,8 @@ struct korok {
 		int nodeIndex, const glm::mat4& parentTransform, 
 		std::vector<glm::mat4> &globalTransforms)
 	{
+		// DONE: your code here
+		// ----------------------------------------
 		const tinygltf::Node& node = model.nodes[nodeIndex];
 		globalTransforms.push_back(parentTransform * localTransforms[nodeIndex]);
 		for (int childIndex : node.children) {
@@ -1129,12 +1235,17 @@ struct korok {
 			// Calculate current animation time (wrap if necessary)
 			const std::vector<float> &times = animationObject.samplers[channel.sampler].input;
 			float animationTime = fmod(time, times.back());
-
+			
+			// DONE: Find a keyframe for getting animation data 
+			// ----------------------------------------------------------
 			int keyframeIndex = findKeyframeIndex(times, animationTime);  
 
 			const unsigned char *outputPtr = &outputBuffer.data[outputBufferView.byteOffset + outputAccessor.byteOffset];
 			const float *outputBuf = reinterpret_cast<const float*>(outputPtr);
 
+			// -----------------------------------------------------------
+			// TODO: Add interpolation for smooth animation
+			// -----------------------------------------------------------
 			if (channel.target_path == "translation") {
 				glm::vec3 translation0, translation1;
 				memcpy(&translation0, outputPtr + keyframeIndex * 3 * sizeof(float), 3 * sizeof(float));
@@ -1158,6 +1269,9 @@ struct korok {
 	}
 
 	void updateSkinning(const std::vector<glm::mat4> &nodeTransforms) {
+
+		// DONE: Recompute joint matrices 
+		// -------------------------------------------------
 		for (size_t i = 0; i < skinObjects.size(); i++) {
 			SkinObject& skinObject = skinObjects[i];
 			const tinygltf::Skin& skin = model.skins[i];
@@ -1170,8 +1284,10 @@ struct korok {
 	}
 
 	void update(float time) {
-		return;
+		//return;
 
+		// DONE: your code here
+		// -------------------------------------------------
 		if (model.animations.size() > 0) {
 			const tinygltf::Skin& skin = model.skins[0];
 			const tinygltf::Animation& animation = model.animations[0];
@@ -1215,7 +1331,7 @@ struct korok {
 
 	void initialize() {
 		// Modify your path if needed
-		if (!loadModel(model, "../final/model/scene.gltf")) {
+		if (!loadModel(model, "../final/model/shark/scene.gltf")) {
 			return;
 		}
 
@@ -1293,10 +1409,10 @@ struct korok {
 
 				int vaa = -1;
 				if (attrib.first.compare("POSITION") == 0) vaa = 0;
-				if (attrib.first.compare("NORMAL") == 0) vaa = 1;
+				if (attrib.first.compare("NORMAL") == 0) vaa = 1;			
 				if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
-				if (attrib.first.compare("JOINTS_0") == 0) vaa = 3;
-				if (attrib.first.compare("WEIGHTS_0") == 0) vaa = 4;
+				if (attrib.first.compare("JOINTS_0") == 0) vaa = 5;
+				if (attrib.first.compare("WEIGHTS_0") == 0) vaa = 6;
 				if (vaa > -1) {
 					glEnableVertexAttribArray(vaa);
 					glVertexAttribPointer(vaa, size, accessor.componentType,
@@ -1393,6 +1509,10 @@ struct korok {
 		glm::mat4 mvp = cameraMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
+		// -----------------------------------------------------------------
+		// DONE: Set animation data for linear blend skinning in shader
+		// -----------------------------------------------------------------
+
 		for (size_t i = 0; i < skinObjects.size(); i++) {
 			const SkinObject& skin = skinObjects[i];
 			glUniformMatrix4fv(jointMatricesID, skin.jointMatrices.size(), GL_FALSE, glm::value_ptr(skin.jointMatrices[0]));
@@ -1410,30 +1530,6 @@ struct korok {
 		glDeleteProgram(programID);
 	}
 }; 
-
-GLuint createTexture(int width, int height) {
-    GLuint texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    return texture;
-}
-
-void setupFramebuffer(GLuint& fbo, GLuint& texture) {
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-        std::cerr << "Error: Framebuffer is not complete!" << std::endl;
-    }
-
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-}
 
 int main(void)
 {
@@ -1483,9 +1579,6 @@ int main(void)
 	box skybox;
 	skybox.initialize(camera.Position, glm::vec3(100, 100, 100));
 
-	//box ground;
-	//ground.initialize(glm::vec3(0, 0, 0), glm::vec3(10, 1, 10));
-
 	std::vector<std::string> faces = {
 		"../final/right.jpg", "../final/left.jpg",
 		"../final/top.jpg", "../final/bottom.jpg",
@@ -1493,10 +1586,31 @@ int main(void)
 	};
 	GLuint cubemapTexture = loadCubemap(faces);
 	spire spire;
-	spire.initialize(glm::vec3(0, -10, -30), glm::vec3(3, 30, 3), cubemapTexture);
+	spire.initialize(glm::vec3(0, 1, -30), glm::vec3(3, 30, 3), cubemapTexture);
 
-	//ocean oceanSimulation;
-    //oceanSimulation.initialize(glm::vec3(0, 0, 0), glm::vec3(1.0f, 1.0f, 1.0f));
+	//MyBot k;
+	//k.initialize();
+
+	ocean oceanSimulation;
+    oceanSimulation.initialize(glm::vec3(0, 0, 0), glm::vec3(1.0f, 1.0f, 1.0f));
+
+	// Create and activate FBO
+    GLuint depthMapFBO;
+    glGenFramebuffers(1, &depthMapFBO);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+    GLuint depthMap;
+    glGenTextures(1, &depthMap);
+    glBindTexture(GL_TEXTURE_2D, depthMap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, shadowMapWidth, shadowMapHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindFramebuffer(GL_FRAMEBUFFER, depthMap);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+    glDrawBuffer(GL_NONE);
+    glReadBuffer(GL_NONE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	// Camera setup
 	glm::float32 FoV = 45;
@@ -1504,6 +1618,7 @@ int main(void)
 	glm::float32 zFar = 1000.0f;
     glm::mat4 viewMatrix, projectionMatrix;
 	projectionMatrix = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, zNear, zFar);
+	
 
 	// Time and frame rate tracking
 	static double lastTime = glfwGetTime();
@@ -1526,33 +1641,39 @@ int main(void)
 
 		processInput(window, camera, deltaTime);
 
-		/*if (playAnimation) {
-			time += deltaTime * playbackSpeed;
-			bot.update(time);
-		}*/
-
 		// view/projection transformations
         glm::mat4 viewMatrix = camera.GetViewMatrix();
 		
 
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
-		skybox.render(vp);
 		//ground.render(vp);
-		spire.render(vp);
-		//oceanSimulation.render(vp, 1.0f, glm::vec2(10.0f, 10.0f), currentTime);
 
-		/*
-		glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
-		glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
-		glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-		spire.render(lightSpaceMatrix);
-		*/
+        glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
+        glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
+        glm::mat4 lightSpaceMatrix = lightProjection * lightView;
+        spire.renderDepth(lightSpaceMatrix);
 
-		GLenum err;
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        spire.render(vp, lightSpaceMatrix, depthMap);
+		oceanSimulation.render(vp, currentTime);
+
+        skybox.render(vp);
+
+
+
+		/*GLenum err;
 		while ((err = glGetError()) != GL_NO_ERROR) {
 			std::cerr << "OpenGL error: " << err << std::endl;
+		}*/
+
+		if (playAnimation) {
+			time += deltaTime * playbackSpeed;
+			//k.update(time);
 		}
+		//k.render(vp);
+
 
 		// FPS tracking 
 		// Count number of frames over a few seconds and take average
@@ -1578,8 +1699,9 @@ int main(void)
 	// Clean up
 	skybox.cleanup();
 	spire.cleanup();
-	//oceanSimulation.cleanup();
+	oceanSimulation.cleanup();
 	//ground.cleanup();
+	//k.cleanup();
 
 	// Close OpenGL window and terminate GLFW
 	glfwTerminate();

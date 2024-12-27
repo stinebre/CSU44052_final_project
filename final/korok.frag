@@ -2,11 +2,13 @@
 
 in vec3 worldPosition;
 in vec3 worldNormal; 
+//in vec2 texcoord;
 
 out vec3 finalColor;
 
 uniform vec3 lightPosition;
 uniform vec3 lightIntensity;
+//uniform sampler2D textureSampler;  
 
 void main()
 {
@@ -21,4 +23,6 @@ void main()
 
 	// Gamma correction
 	finalColor = pow(v, vec3(1.0 / 2.2));
+
+	//finalColor = texture(texcoord, textureSampler);
 }
