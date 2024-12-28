@@ -20,7 +20,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
 static GLFWwindow *window;
@@ -28,7 +27,7 @@ static int windowWidth = 1024;
 static int windowHeight = 768;
 
 // Camera - learnOpengl
-Camera camera(glm::vec3(0.0f, 5.0f, 3.0f));
+Camera camera(glm::vec3(0.0f, 7.0f, 3.0f));
 float lastX = windowWidth / 2.0f;
 float lastY = windowHeight / 2.0f;
 bool firstMouse = true;
@@ -36,11 +35,6 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow *window, Camera &camera, float deltaTime);
-
-// View control
-static float viewAzimuth = 0.f;
-static float viewPolar = 0.f;
-static float viewDistance = 0.1f; 
 
 // Lighting  
 const glm::vec3 wave500(0.0f, 255.0f, 146.0f);
@@ -65,8 +59,8 @@ static float depthFar = 750.0f;
 static bool playAnimation = true;
 static float playbackSpeed = 2.0f;
 
-// timing - learnOpengl
-float deltaTime = 0.0f; // time between current frame and last frame
+// Timing 
+float deltaTime = 0.0f; 
 float lastFrame = 0.0f;
 
 static GLuint LoadTextureTileBox(const char *texture_file_path)
@@ -97,7 +91,7 @@ static GLuint LoadTextureTileBox(const char *texture_file_path)
 	return texture;
 }
 
-// cubemap  - learnOpengl
+// Cubemap  - learnOpengl
 unsigned int loadCubemap(std::vector<std::string> faces)
 {
     unsigned int textureID;
@@ -128,7 +122,7 @@ unsigned int loadCubemap(std::vector<std::string> faces)
     return textureID;
 }
 
-// potentially redo using CubeMap
+// Textured skybox
 struct box
 {
     glm::vec3 position;
@@ -260,7 +254,7 @@ struct box
         1.0f, 0.0f, 1.0f,  
     };
 
-    GLuint index_buffer_data[36] = {        // 12 triangle faces of a box
+    GLuint index_buffer_data[36] = {
         0, 1, 2,    
         0, 2, 3, 
         
@@ -357,50 +351,41 @@ struct box
 
 	void initialize(glm::vec3 position, glm::vec3 scale)
 	{
-		// Define scale of the building geometry
 		this->position = position;
 		this->scale = scale;
 
-		// Create a vertex array object
+		// VAOs and VBOs
 		glGenVertexArrays(1, &vertexArrayID);
 		glBindVertexArray(vertexArrayID);
 
-		// Create a vertex buffer object to store the vertex data
 		glGenBuffers(1, &vertexBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);
 
-		// Create a vertex buffer object to store the color data
 		for (int i = 0; i < 72; ++i)
 			color_buffer_data[i] = 1.0f;
 		glGenBuffers(1, &colorBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(color_buffer_data), color_buffer_data, GL_STATIC_DRAW);
 
-		// Create a vertex buffer object to store the UV data
 		glGenBuffers(1, &uvBufferID);
 		glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(uv_buffer_data), uv_buffer_data, GL_STATIC_DRAW);
 
-		// Create an index buffer object to store the index data that defines triangle faces
 		glGenBuffers(1, &indexBufferID);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
-		// Create and compile our GLSL program from the shaders
+		// Shaders and uniforms
 		boxprogID = LoadShadersFromFile("../final/skybox.vert", "../final/skybox.frag");
 		if (boxprogID == 0)
 		{
 			std::cerr << "Failed to load shaders." << std::endl;
 		}
-
-		// Get a handle for our "MVP" uniform
 		mvpMatrixID = glGetUniformLocation(boxprogID, "MVP");
 
-		// Load a texture
+		// Texturing
 		textureID = LoadTextureTileBox("../final/cloudySea.jpg");
-
-		// Get a handle to texture sampler
 		textureSamplerID = glGetUniformLocation(boxprogID, "textureSampler");
 	}
 
@@ -420,30 +405,23 @@ struct box
 
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
-		// DONE: Model transform
-		// -----------------------
 		glm::mat4 modelMatrix = glm::mat4(1.0f);
-		// Translate the box
 		modelMatrix = glm::translate(modelMatrix, camera.Position);
-		// Scale the box along each axis to make it look like a building
 		modelMatrix = glm::scale(modelMatrix, scale);
-		// -----------------------
 
-		// Set model-view-projection matrix
+		// Set uniforms
 		glm::mat4 mvp = cameraMatrix * modelMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
-		// DONE: Enable UV buffer and texture sampler
+		// Texturing
 		glEnableVertexAttribArray(2);
 		glBindBuffer(GL_ARRAY_BUFFER, uvBufferID);
 		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, 0);
-
-		// Set textureSampler to use texture unit 0
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textureID);
 		glUniform1i(textureSamplerID, 0);
 
-		// Draw the box
+		// Draw 
 		glDrawElements(
 			GL_TRIANGLES,	 // mode
 			36,				 // number of indices
@@ -470,21 +448,17 @@ struct box
 
 };
 
-
-// DONE: Cone geometry
-// DONE: environment mapping
-// TODO: Lighting & Shadows
-// TODO: Level of detail
+// Cone geometry
 struct spire
 {
     glm::vec3 position;
     glm::vec3 scale;
 
     static const int slices = 36;
-    GLfloat vertex_buffer_data[slices * 3 + 6];
-    GLfloat color_buffer_data[slices * 3 + 6];
-    GLfloat normal_buffer_data[slices * 3 + 6];
-    GLuint index_buffer_data[slices * 6];
+    GLfloat vertex_buffer_data[slices * 3 + 3];
+    GLfloat color_buffer_data[slices * 3 + 3];
+    GLfloat normal_buffer_data[slices * 3 + 3];
+    GLuint index_buffer_data[slices * 3];
 
     GLuint vertexArrayID;
     GLuint vertexBufferID;
@@ -497,12 +471,16 @@ struct spire
     GLuint lightSpaceMatrixID;
     GLuint depthlightSpaceMatrixID;
     GLuint shadowMapID;
+	GLuint cameraPosID;
+	GLuint lightDirID;
 
     GLuint modelMatrixID;
     GLuint normalMatrixID;
     GLuint mvpMatrixID;
     GLuint coneprogID;
     GLuint cubemapID;
+	GLuint cubemapTextureUnit; 
+    GLuint shadowMapTextureUnit;
 
    void initialize(glm::vec3 position, glm::vec3 scale, GLuint skyTexture)
     {
@@ -515,49 +493,35 @@ struct spire
 		glCullFace(GL_BACK);
 		glFrontFace(GL_CCW);
 
+		shadowMapTextureUnit = 0; 
+        cubemapTextureUnit = 1;
 
         // Step size for the circle
         float step = 2.0f * M_PI / slices;
 
-        // Top vertex (cone tip)
+        // Verticies
         vertex_buffer_data[0] = 0.0f;
-        vertex_buffer_data[1] = 1.0f; // Cone tip at height 1.0
+        vertex_buffer_data[1] = 1.0f; 
         vertex_buffer_data[2] = 0.0f;
-
-        // Generate circle vertices
         int vbd_index = 3;
         for (int i = 0; i < slices; ++i)
         {
             float angle = i * step;
-            vertex_buffer_data[vbd_index++] = cos(angle); // X
-            vertex_buffer_data[vbd_index++] = 0.0f;       // Y (base is at y=0)
-            vertex_buffer_data[vbd_index++] = sin(angle); // Z
+            vertex_buffer_data[vbd_index++] = cos(angle); 
+            vertex_buffer_data[vbd_index++] = 0.0f;       
+            vertex_buffer_data[vbd_index++] = sin(angle); 
         }
 
-        // Center vertex for the base
-        vertex_buffer_data[vbd_index++] = 0.0f; // X
-        vertex_buffer_data[vbd_index++] = 0.0f; // Y
-        vertex_buffer_data[vbd_index++] = 0.0f; // Z
-
-        // Color data (all vertices the same color)
+        // Colors
         for (int i = 0; i < slices * 3 + 6; ++i)
         {
             color_buffer_data[i] = 0.5f; // Light gray
         }
 
-        // Calculate normals
-        // Tip normal
+        // Normals
         normal_buffer_data[0] = 0.0f;
         normal_buffer_data[1] = 1.0f;
         normal_buffer_data[2] = 0.0f;
-
-        // Base center normal (pointing downward)
-        int base_center_index = slices * 3 + 3;
-        normal_buffer_data[base_center_index] = 0.0f;
-        normal_buffer_data[base_center_index + 1] = -1.0f;
-        normal_buffer_data[base_center_index + 2] = 0.0f;
-
-        // Side and base normals
         int normal_index = 3;
         for (int i = 0; i < slices; ++i)
         {
@@ -574,23 +538,13 @@ struct spire
             normal_buffer_data[normal_index++] = side_normal.z;
         }
 
-        // Index buffer for triangles
-        int index = 0;
-
         // Side triangles
+        int index = 0;
         for (int i = 0; i < slices; ++i)
         {
             index_buffer_data[index++] = 0;                      // Apex
             index_buffer_data[index++] = 1 + i;                 // Current base vertex
             index_buffer_data[index++] = 1 + (i + 1) % slices;  // Next base vertex
-        }
-
-        // Base triangles
-        for (int i = 0; i < slices; ++i)
-        {
-            index_buffer_data[index++] = slices + 1;            // Center of the base
-            index_buffer_data[index++] = 1 + (i + 1) % slices;  // Next base vertex
-            index_buffer_data[index++] = 1 + i;                 // Current base vertex
         }
 
         // Generate and bind VAO
@@ -617,7 +571,7 @@ struct spire
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
-        // Load shaders
+        // Shaders
         coneprogID = LoadShadersFromFile("../final/cone.vert", "../final/cone.frag");
         if (coneprogID == 0)
         {
@@ -630,20 +584,31 @@ struct spire
             std::cerr << "Failed to load depth shaders." << std::endl;
         }
 
-        // Get matrix uniform locations
+		// Texturing
+		GLint cubemapSamplerID = glGetUniformLocation(coneprogID, "skybox");
+        GLint shadowmapSamplerID = glGetUniformLocation(coneprogID, "shadowMap");
+        if (cubemapSamplerID == -1 || shadowmapSamplerID == -1) {
+            std::cerr << "Failed to get texture sampler uniform locations." << std::endl;
+        }
+
+        // Shader uniforms
         mvpMatrixID = glGetUniformLocation(coneprogID, "MVP");
         modelMatrixID = glGetUniformLocation(coneprogID, "modelMatrix");
         normalMatrixID = glGetUniformLocation(coneprogID, "normalMatrix");
-        lightPositionID = glGetUniformLocation(coneprogID, "lightPosition");
         lightSpaceMatrixID = glGetUniformLocation(depthProgramID, "lightSpaceMatrix");
         depthlightSpaceMatrixID = glGetUniformLocation(coneprogID, "lightSpaceMatrix");
-        shadowMapID = glGetUniformLocation(coneprogID, "shadowMap");
-        if (mvpMatrixID == -1 || lightPositionID == -1) {
+		cameraPosID = glGetUniformLocation(coneprogID, "cameraPos");
+		lightDirID = glGetUniformLocation(coneprogID, "lightDir");
+        if (mvpMatrixID == -1 || cameraPosID == -1 || lightDirID == -1) {
             std::cerr << "Failed to get uniform locations. (1)" << std::endl;
         }
-        if(lightSpaceMatrixID == -1 || depthlightSpaceMatrixID == -1 || shadowMapID == -1) {
+        if(lightSpaceMatrixID == -1 || depthlightSpaceMatrixID == -1) {
             std::cerr << "Failed to get uniform locations. (2)" << std::endl;
         }
+
+		glUseProgram(coneprogID);
+        glUniform1i(cubemapSamplerID, cubemapTextureUnit);
+        glUniform1i(shadowmapSamplerID, shadowMapTextureUnit);
 
         // Unbind VAO
         glBindVertexArray(0);
@@ -654,22 +619,22 @@ struct spire
         glUseProgram(coneprogID);
         glBindVertexArray(vertexArrayID);
 
-        // Set up vertex positions
+        // Positions
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-        // Set up vertex colors
+        // Colors
         glEnableVertexAttribArray(1);
         glBindBuffer(GL_ARRAY_BUFFER, colorBufferID);
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-        // Set up vertex normals
+        // Normals
         glEnableVertexAttribArray(2);
         glBindBuffer(GL_ARRAY_BUFFER, normalBufferID);
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, 0);
 
-        // Bind index buffer
+        // Indices
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
         // Model transformation
@@ -679,7 +644,11 @@ struct spire
         glm::mat3 normalMatrix = glm::transpose(glm::inverse(glm::mat3(modelMatrix)));
 		lightPosition = glm::vec3(cameraMatrix * glm::vec4(lightPosition, 1.0f));
 
-        // Compute and set MVP matrix
+		// Shader uniforms
+		glm::vec3 lightDir = glm::normalize(glm::vec3(1.0f, -1.0f, 1.0f));
+		glm::vec3 cameraPos = camera.Position;
+        glUniform3fv(lightDirID, 1, &lightDir[0]);
+		glUniform3fv(cameraPosID, 1, &cameraPos[0]);
         glm::mat4 mvp = cameraMatrix * modelMatrix;
         glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
         glUniformMatrix4fv(modelMatrixID, 1, GL_FALSE, &modelMatrix[0][0]);
@@ -687,10 +656,13 @@ struct spire
         glUniform3fv(lightPositionID, 1, &lightPosition[0]);
         glUniformMatrix4fv(depthlightSpaceMatrixID, 1, GL_FALSE, &lightMatrix[0][0]);
 
-        glActiveTexture(GL_TEXTURE0);
+		// Texturing
+        glActiveTexture(GL_TEXTURE0 + shadowMapTextureUnit);
+        glBindTexture(GL_TEXTURE_2D, depthMap);
+        glActiveTexture(GL_TEXTURE0 + cubemapTextureUnit);
         glBindTexture(GL_TEXTURE_CUBE_MAP, cubemapID);
 
-        // Draw elements
+        // Draw 
         glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
 
         // Reset state
@@ -703,16 +675,20 @@ struct spire
         glUseProgram(depthProgramID);
 		glBindVertexArray(vertexArrayID);
 
+		// Positions and Indices 
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
+		// Shader uniforms
         glm::mat4 mvp = lightSpaceMatrix;
         glUniformMatrix4fv(lightSpaceMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
+		// Draw
         glDrawElements(GL_TRIANGLES, slices * 6, GL_UNSIGNED_INT, 0);
 
+		// Reset
         glDisableVertexAttribArray(0);
         
     }
@@ -729,13 +705,12 @@ struct spire
     }
 };
 
-
-//DONE: Ocean simulation 
+// Fluid simulation (Fast Fourier Transform)
 struct ocean {
     glm::vec3 position;
     glm::vec3 scale;
 
-    static const int grid_size = 128*2;
+    static const int grid_size = 256;
     GLfloat vertex_buffer_data[grid_size * grid_size * 3];
     GLfloat uv_buffer_data[grid_size * grid_size * 2];
     GLuint index_buffer_data[(grid_size - 1) * (grid_size - 1) * 6];
@@ -758,7 +733,7 @@ struct ocean {
     GLuint heightMapID;
     
     GLuint lightDirID;
-    GLuint lightColorID;
+    GLuint lightPosID;
     GLuint ambientColorID;
 	GLuint cameraPosID;
 
@@ -815,22 +790,20 @@ struct ocean {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(index_buffer_data), index_buffer_data, GL_STATIC_DRAW);
 
-        // Load shaders
+        // Shaders
         oceanShaderID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
         fftShaderHorizontalID = LoadShadersFromFile("../final/fft_horizontal.vert", "../final/fft_horizontal.frag");
         fftShaderVerticalID = LoadShadersFromFile("../final/fft_vertical.vert", "../final/fft_vertical.frag");
 
-        // Get uniform locations
+        // Shader uniforms
         mvpMatrixID = glGetUniformLocation(oceanShaderID, "MVP");
         heightMapID = glGetUniformLocation(oceanShaderID, "heightMap");
-
-        // Get lighting uniform locations
         lightDirID = glGetUniformLocation(oceanShaderID, "lightDir");
-        lightColorID = glGetUniformLocation(oceanShaderID, "lightColor");
+        lightPosID = glGetUniformLocation(oceanShaderID, "lightPos");
         ambientColorID = glGetUniformLocation(oceanShaderID, "ambientColor");
 		cameraPosID = glGetUniformLocation(oceanShaderID, "cameraPos");
 
-        // Create FBO and textures
+        // FBO and texturing
         setupFBO();
         setupFullScreenQuad();
     }
@@ -854,7 +827,7 @@ struct ocean {
 
 		glGenFramebuffers(1, &waveFBOHorizontal);
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, intermediateTexture, 0); // Intermediate texture
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, intermediateTexture, 0); 
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -863,7 +836,7 @@ struct ocean {
 
 		glGenFramebuffers(1, &waveFBOVertical);
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightMapTexture, 0); // Final height map texture
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, heightMapTexture, 0); 
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
 		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -890,11 +863,12 @@ struct ocean {
         glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
         glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
 
-        // Set up vertex attributes
-        glEnableVertexAttribArray(0); // Position
+        // Position
+        glEnableVertexAttribArray(0); 
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)0);
 
-        glEnableVertexAttribArray(1); // UV
+		// UV
+        glEnableVertexAttribArray(1); 
         glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(GLfloat), (GLvoid*)(2 * sizeof(GLfloat)));
 
         glBindVertexArray(0);
@@ -904,12 +878,13 @@ struct ocean {
 		glUseProgram(fftShaderHorizontalID);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
-
+		 
+		// Texturing
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture); // Use heightMapTexture as input for the first pass
-		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "inputTexture"), 0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture); 
 
-		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "width"), grid_size);
+		// Shader uniforms
+		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "inputTexture"), 0);
 		glUniform1i(glGetUniformLocation(fftShaderHorizontalID, "passNumber"), numPass);
 		glUniform1f(glGetUniformLocation(fftShaderHorizontalID, "time"), time);
 
@@ -920,16 +895,17 @@ struct ocean {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-
 	void fftVerticalPass(float time, int numPass) {
 		glUseProgram(fftShaderVerticalID);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOVertical);
 
+		// Texturing
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, intermediateTexture); // Use intermediateTexture as input
+		glBindTexture(GL_TEXTURE_2D, intermediateTexture); 
 		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "horizontalPassTexture"), 0);
 
+		// Shader uniforms
 		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "width"), grid_size);
 		glUniform1i(glGetUniformLocation(fftShaderVerticalID, "passNumber"), numPass);
 		glUniform1f(glGetUniformLocation(fftShaderVerticalID, "time"), time);
@@ -941,7 +917,6 @@ struct ocean {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-
     void render(glm::mat4 cameraMatrix, float time) {
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
@@ -952,12 +927,14 @@ struct ocean {
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 
+		// Determines step size
 		int numPasses = int(log2(float(grid_size)));
     	for (int pass = 0; pass < numPasses; ++pass) {
 			fftHorizontalPass(time, pass);
 			fftVerticalPass(time, pass);
 		}
 
+		// Rendering using height map texture
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
 		glUniform1i(heightMapID, 0);
@@ -975,27 +952,25 @@ struct ocean {
 
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
+		// Shader uniforms
         glm::mat4 modelMatrix = glm::mat4(1.0f);
         modelMatrix = glm::translate(modelMatrix, position);
         modelMatrix = glm::scale(modelMatrix, scale);
-
         glm::mat4 mvpMatrix = cameraMatrix * modelMatrix;
         glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvpMatrix[0][0]);
-
-        // Pass lighting and ambient data
         glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
-        glm::vec3 lightColor = glm::vec3(0.8f, 0.8f, 1.0f);
         glm::vec3 ambientColor = glm::vec3(0.2f, 0.2f, 0.5f);
 		glm::vec3 cameraPos = camera.Position;
-
+		glm::vec3 lightPos = lightPosition;
         glUniform3fv(lightDirID, 1, &lightDir[0]);
-        glUniform3fv(lightColorID, 1, &lightColor[0]);
         glUniform3fv(ambientColorID, 1, &ambientColor[0]);
 
+		// Texturing
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, heightMapTexture);
         glUniform1i(heightMapID, 0);
 
+		// Final draw
         glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, nullptr);
 
         glDisableVertexAttribArray(0);
@@ -1625,8 +1600,9 @@ int main(void)
 	//MyBot k;
 	//k.initialize();
 
-	ocean oceanSimulation;
-    oceanSimulation.initialize(glm::vec3(0, 0, 0), glm::vec3(1.0f, 1.0f, 1.0f));
+	ocean tile1;
+    tile1.initialize(glm::vec3(0.0f), glm::vec3(1.0f, 1.0f, 1.0f));
+
 
 	// Create and activate FBO
     GLuint depthMapFBO;
@@ -1677,12 +1653,9 @@ int main(void)
 
 		// view/projection transformations
         glm::mat4 viewMatrix = camera.GetViewMatrix();
-		
-
+	
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
-		//ground.render(vp);
-
         glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
         glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
         glm::mat4 lightSpaceMatrix = lightProjection * lightView;
@@ -1691,7 +1664,7 @@ int main(void)
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         spire.render(vp, lightSpaceMatrix, depthMap);
-		oceanSimulation.render(vp, currentTime);
+		tile1.render(vp, currentTime);
 
         skybox.render(vp);
 
@@ -1733,7 +1706,7 @@ int main(void)
 	// Clean up
 	skybox.cleanup();
 	spire.cleanup();
-	oceanSimulation.cleanup();
+	tile1.cleanup();
 	//ground.cleanup();
 	//k.cleanup();
 
@@ -1743,9 +1716,10 @@ int main(void)
 	return 0;
 }
 
-//DONE: free-roam cam
+// Free-roam camera
 void processInput(GLFWwindow *window, Camera &camera, float deltaTime)
 {
+	// debug [DELETE FOR SUBMISSION]
 	// std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
 
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
@@ -1763,8 +1737,6 @@ void processInput(GLFWwindow *window, Camera &camera, float deltaTime)
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
-    // make sure the viewport matches the new window dimensions; note that width and 
-    // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
 }
 

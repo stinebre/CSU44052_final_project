@@ -3,13 +3,11 @@
 in vec3 color;
 in vec2 uv;
 
-uniform sampler2D textureSampler;
-
 out vec3 finalColor;
+
+uniform sampler2D textureSampler;
 
 void main()
 {
-	// texture lookup. 
 	finalColor = color * texture(textureSampler, uv).rgb;
-
 }

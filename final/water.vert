@@ -12,14 +12,14 @@ void main() {
     fragUV = vertexUV;
     worldPosition = vertexPosition;
 
-    // Sample the height from the heightmap
+    // Displace based on height map
     float height = texture(heightMap, fragUV).r;
     height = sign(height) * (1.0 - exp(-abs(height)));
-
-    // Displace the vertex position in the y-direction
     vec3 displacedPosition = vertexPosition;
-    displacedPosition.y += height * 0.4;  // Scale height for better visibility
+    displacedPosition.y += height * 0.4;  
 
     gl_Position = MVP * vec4(displacedPosition, 1.0);
-    //fragUV = vec2(height);  // Pass height as UV for debugging
+    
+    // debug [REMOVE BEFORE SUBMISSION]
+    //fragUV = vec2(height);
 }
