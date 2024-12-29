@@ -23,7 +23,7 @@ void main() {
     
     vec4 pos = skinMatrix * vec4(vertexPosition, 1.0);
     pos = pos * vec4(0.1, 0.1, 0.1, 1.0);
-    pos += vec4(0.0f, -8.0, -62.0, 1.0f);
+    pos += vec4(0.0f, -7.0, -62.0, 1.0f);
 
     // Transform vertex
     gl_Position =  MVP * pos;

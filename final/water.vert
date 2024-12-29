@@ -9,6 +9,7 @@ out vec4 fragPosLightSpace;
 uniform mat4 MVP;
 uniform sampler2D heightMap;
 uniform mat4 lightSpaceMatrix;
+uniform sampler2D shadowMap;
 
 void main() {
     fragUV = vertexUV;
@@ -18,12 +19,9 @@ void main() {
     float height = texture(heightMap, fragUV).r;
     height = sign(height) * (1.0 - exp(-abs(height)));
     vec3 displacedPosition = vertexPosition;
-    displacedPosition.y += height * 0.5;  
+    displacedPosition.y += height * 0.4;  
 
     gl_Position = MVP * vec4(displacedPosition, 1.0);
 
     fragPosLightSpace = lightSpaceMatrix * vec4(worldPosition, 1.0);
-    
-    // debug [REMOVE BEFORE SUBMISSION]
-    //fragUV = vec2(height);
 }
