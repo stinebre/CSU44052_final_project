@@ -928,6 +928,8 @@ struct ocean {
 	}
 
     void render(glm::mat4 cameraMatrix, glm::mat4 lightMatrix, GLuint depthMap, float time) {
+        position.x = camera.Position.x;
+        position.z = camera.Position.z;
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
