@@ -26,25 +26,24 @@ void main()
 
     // Specular highlights
     vec3 viewDir = normalize(cameraPos - worldPosition);
-    vec3 halfVector = normalize(-lightDirNorm + viewDir);  // Halfway vector
-    float specular = pow(max(dot(normal, halfVector), 0.0), 16.0); // Shininess factor
-    vec3 specularColor = vec3(1.0) * specular * 0.3; // Specular highlights
+    vec3 halfVector = normalize(-lightDirNorm + viewDir);  
+    float specular = pow(max(dot(normal, halfVector), 0.0), 16.0); 
+    vec3 specularColor = vec3(1.0) * specular * 0.3; 
 
     // Environment mapping 
-    vec3 reflectDir = reflect(-viewDir, normal); // Reflection direction
+    vec3 reflectDir = reflect(-viewDir, normal); 
 	reflectDir.y = -reflectDir.y;
-    vec3 envColor = texture(skybox, reflectDir).rgb; // Sample the cube map
-    envColor *= 0.6; // Adjust reflection intensity
+    vec3 envColor = texture(skybox, reflectDir).rgb; 
+    envColor *= 0.6; 
 
     // Shadows
     vec3 uv = fragPosLightSpace.xyz / fragPosLightSpace.w;
-    uv = uv * 0.5 + 0.5; // Transform from NDC to texture coordinates
+    uv = uv * 0.5 + 0.5; 
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || uv.z > 1.0) {
-        // Outside shadow map bounds; no shadow applied
         uv.z = 1.0;
     }
     float existingDepth = texture(shadowMap, uv.xy).r;
-    float bias = max(0.005 * (1.0 - dot(normal, lightDirNorm)), 0.0005); // Shadow bias
+    float bias = max(0.005 * (1.0 - dot(normal, lightDirNorm)), 0.0005); 
     float shadow = (uv.z > existingDepth + bias) ? 0.2 : 1.0;
 
     lighting = (lighting + specularColor) * shadow;
@@ -53,7 +52,7 @@ void main()
     vec3 finalLighting = mix(lighting, envColor, 0.3); 
 
     // Reinhard tone mapping
-    float exposure = 1.0; // Adjust for scene brightness
+    float exposure = 1.0; 
     vec3 mapped = vec3(1.0) - exp(-finalLighting * exposure);
 
     // Gamma correction

@@ -736,12 +736,18 @@ struct ocean {
     GLuint lightPosID;
     GLuint ambientColorID;
 	GLuint cameraPosID;
+	GLuint depthProgramID;
+    GLuint lightSpaceMatrixID;
+    GLuint depthlightSpaceMatrixID;
+	GLuint shadowMapTextureUnit;
 
     GLuint quadVAO, quadVBO;
 
     void initialize(glm::vec3 position, glm::vec3 scale) {
         this->position = position;
         this->scale = scale;
+
+		shadowMapTextureUnit = 1;
 
         // Generate vertex and UV data for a grid
         int vertexIndex = 0, uvIndex = 0;
@@ -792,8 +798,10 @@ struct ocean {
 
         // Shaders
         oceanShaderID = LoadShadersFromFile("../final/water.vert", "../final/water.frag");
+		depthProgramID = LoadShadersFromFile("../final/depth.vert", "../final/depth.frag");
         fftShaderHorizontalID = LoadShadersFromFile("../final/fft_horizontal.vert", "../final/fft_horizontal.frag");
         fftShaderVerticalID = LoadShadersFromFile("../final/fft_vertical.vert", "../final/fft_vertical.frag");
+
 
         // Shader uniforms
         mvpMatrixID = glGetUniformLocation(oceanShaderID, "MVP");
@@ -802,6 +810,8 @@ struct ocean {
         lightPosID = glGetUniformLocation(oceanShaderID, "lightPos");
         ambientColorID = glGetUniformLocation(oceanShaderID, "ambientColor");
 		cameraPosID = glGetUniformLocation(oceanShaderID, "cameraPos");
+		lightSpaceMatrixID = glGetUniformLocation(depthProgramID, "lightSpaceMatrix");
+        depthlightSpaceMatrixID = glGetUniformLocation(oceanShaderID, "lightSpaceMatrix");
 
         // FBO and texturing
         setupFBO();
@@ -917,7 +927,7 @@ struct ocean {
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
-    void render(glm::mat4 cameraMatrix, float time) {
+    void render(glm::mat4 cameraMatrix, glm::mat4 lightMatrix, GLuint depthMap, float time) {
 
 		glBindFramebuffer(GL_FRAMEBUFFER, waveFBOHorizontal);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -935,10 +945,6 @@ struct ocean {
 		}
 
 		// Rendering using height map texture
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
-		glUniform1i(heightMapID, 0);
-
         glUseProgram(oceanShaderID);
         glBindVertexArray(vertexArrayID);
 
@@ -953,22 +959,30 @@ struct ocean {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
 
 		// Shader uniforms
-        glm::mat4 modelMatrix = glm::mat4(1.0f);
-        modelMatrix = glm::translate(modelMatrix, position);
-        modelMatrix = glm::scale(modelMatrix, scale);
-        glm::mat4 mvpMatrix = cameraMatrix * modelMatrix;
-        glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvpMatrix[0][0]);
-        glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
-        glm::vec3 ambientColor = glm::vec3(0.2f, 0.2f, 0.5f);
+		glm::mat4 modelMatrix = glm::mat4(1.0f);
+		modelMatrix = glm::translate(modelMatrix, position);
+		modelMatrix = glm::scale(modelMatrix, scale);
+		glm::mat4 mvpMatrix = cameraMatrix * modelMatrix;
+
+		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvpMatrix[0][0]);
+		glUniformMatrix4fv(depthlightSpaceMatrixID, 1, GL_FALSE, &lightMatrix[0][0]);
+
+		glm::vec3 lightDir = glm::normalize(glm::vec3(-1.0f, -1.0f, -1.0f));
+		glm::vec3 ambientColor = glm::vec3(0.2f, 0.2f, 0.5f);
 		glm::vec3 cameraPos = camera.Position;
-		glm::vec3 lightPos = lightPosition;
-        glUniform3fv(lightDirID, 1, &lightDir[0]);
-        glUniform3fv(ambientColorID, 1, &ambientColor[0]);
+		glUniform3fv(lightDirID, 1, &lightDir[0]);
+		glUniform3fv(ambientColorID, 1, &ambientColor[0]);
+		glUniform3fv(cameraPosID, 1, &cameraPos[0]);
 
 		// Texturing
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, heightMapTexture);
-        glUniform1i(heightMapID, 0);
+		glBindTexture(GL_TEXTURE_2D, heightMapTexture);
+		glUniform1i(heightMapID, 0);
+
+		glActiveTexture(GL_TEXTURE0 + shadowMapTextureUnit);
+		glBindTexture(GL_TEXTURE_2D, depthMap);
+		GLint shadowMapLocation = glGetUniformLocation(oceanShaderID, "shadowMap");
+		glUniform1i(shadowMapLocation, shadowMapTextureUnit);
 
 		// Final draw
         glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, nullptr);
@@ -976,6 +990,28 @@ struct ocean {
         glDisableVertexAttribArray(0);
         glDisableVertexAttribArray(1);
         glBindVertexArray(0);
+    }
+
+	void renderDepth(glm::mat4 lightSpaceMatrix) {
+        glUseProgram(depthProgramID);
+		glBindVertexArray(vertexArrayID);
+
+		// Positions and Indices 
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBufferID);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBufferID);
+
+		// Shader uniforms
+        glm::mat4 mvp = lightSpaceMatrix;
+        glUniformMatrix4fv(lightSpaceMatrixID, 1, GL_FALSE, &mvp[0][0]);
+
+		// Draw
+        glDrawElements(GL_TRIANGLES, (grid_size - 1) * (grid_size - 1) * 6, GL_UNSIGNED_INT, nullptr);
+
+		// Reset
+        glDisableVertexAttribArray(0);
+        
     }
 
     void cleanup() {
@@ -995,7 +1031,7 @@ struct ocean {
     }
 };
 
-//TODO: Model animation
+//Model animation
 struct MyBot {
 	// Shader variable IDs
 	GLuint mvpMatrixID;
@@ -1004,6 +1040,8 @@ struct MyBot {
 	GLuint lightIntensityID;
 	GLuint programID;
 
+	GLuint textureSamplerID;
+	GLuint textureID;
 	tinygltf::Model model;
 
 	// Each VAO corresponds to each mesh primitive in the GLTF model
@@ -1292,6 +1330,25 @@ struct MyBot {
 
 	}
 
+	void changeBotPosition(glm::vec3 newPosition) {
+		int rootNodeIndex = model.scenes[model.defaultScene].nodes[0];
+		tinygltf::Node &rootNode = model.nodes[rootNodeIndex];
+
+		// Update translation of the root node
+		rootNode.translation = {newPosition.x, newPosition.y, newPosition.z};
+
+		// Recompute transforms
+		std::vector<glm::mat4> localTransforms(model.nodes.size(), glm::mat4(1.0f));
+		computeLocalNodeTransform(model, rootNodeIndex, localTransforms);
+
+		glm::mat4 parentTransform = glm::mat4(1.0f);
+		std::vector<glm::mat4> globalTransforms;
+		computeGlobalNodeTransform(model, localTransforms, rootNodeIndex, parentTransform, globalTransforms);
+
+		// Update skinning with new transforms
+		updateSkinning(globalTransforms);
+	}
+
 	void update(float time) {
 		//return;
 
@@ -1340,7 +1397,7 @@ struct MyBot {
 
 	void initialize() {
 		// Modify your path if needed
-		if (!loadModel(model, "../final/model/shark/scene.gltf")) {
+		if (!loadModel(model, "../final/model/bot/bot.gltf")) {
 			return;
 		}
 
@@ -1354,7 +1411,7 @@ struct MyBot {
 		animationObjects = prepareAnimation(model);
 
 		// Create and compile our GLSL program from the shaders
-		programID = LoadShadersFromFile("../final/korok.vert", "../final/korok.frag");
+		programID = LoadShadersFromFile("../final/bot.vert", "../final/bot.frag");
 		if (programID == 0)
 		{
 			std::cerr << "Failed to load shaders." << std::endl;
@@ -1365,6 +1422,9 @@ struct MyBot {
 		jointMatricesID = glGetUniformLocation(programID,"u_jointMatrix"); 
 		lightPositionID = glGetUniformLocation(programID, "lightPosition");
 		lightIntensityID = glGetUniformLocation(programID, "lightIntensity");
+
+		textureID = LoadTextureTileBox("../final/skin.png");
+		textureSamplerID = glGetUniformLocation(programID, "textureSampler");
 	}
 
 	void bindMesh(std::vector<PrimitiveObject> &primitiveObjects,
@@ -1420,8 +1480,8 @@ struct MyBot {
 				if (attrib.first.compare("POSITION") == 0) vaa = 0;
 				if (attrib.first.compare("NORMAL") == 0) vaa = 1;			
 				if (attrib.first.compare("TEXCOORD_0") == 0) vaa = 2;
-				if (attrib.first.compare("JOINTS_0") == 0) vaa = 5;
-				if (attrib.first.compare("WEIGHTS_0") == 0) vaa = 6;
+				if (attrib.first.compare("JOINTS_0") == 0) vaa = 3;
+				if (attrib.first.compare("WEIGHTS_0") == 0) vaa = 4;
 				if (vaa > -1) {
 					glEnableVertexAttribArray(vaa);
 					glVertexAttribPointer(vaa, size, accessor.componentType,
@@ -1518,9 +1578,9 @@ struct MyBot {
 		glm::mat4 mvp = cameraMatrix;
 		glUniformMatrix4fv(mvpMatrixID, 1, GL_FALSE, &mvp[0][0]);
 
-		// -----------------------------------------------------------------
-		// DONE: Set animation data for linear blend skinning in shader
-		// -----------------------------------------------------------------
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		glUniform1i(textureSamplerID, 0);
 
 		for (size_t i = 0; i < skinObjects.size(); i++) {
 			const SkinObject& skin = skinObjects[i];
@@ -1597,30 +1657,36 @@ int main(void)
 	spire spire;
 	spire.initialize(glm::vec3(0, 0.01, -30), glm::vec3(3, 30, 3), cubemapTexture);
 
-	//MyBot k;
-	//k.initialize();
+	MyBot k;
+	k.initialize();
 
 	ocean tile1;
     tile1.initialize(glm::vec3(0.0f), glm::vec3(1.0f, 1.0f, 1.0f));
 
-
 	// Create and activate FBO
     GLuint depthMapFBO;
-    glGenFramebuffers(1, &depthMapFBO);
-    glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
-    GLuint depthMap;
-    glGenTextures(1, &depthMap);
-    glBindTexture(GL_TEXTURE_2D, depthMap);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, shadowMapWidth, shadowMapHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glBindFramebuffer(GL_FRAMEBUFFER, depthMap);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
-    glDrawBuffer(GL_NONE);
-    glReadBuffer(GL_NONE);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glGenFramebuffers(1, &depthMapFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
+
+	GLuint depthMap;
+	glGenTextures(1, &depthMap);
+	glBindTexture(GL_TEXTURE_2D, depthMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, shadowMapWidth, shadowMapHeight, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
+	glDrawBuffer(GL_NONE);
+	glReadBuffer(GL_NONE);
+
+	// Check for completeness
+	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+		std::cerr << "Framebuffer not complete!" << std::endl;
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	// Camera setup
 	glm::float32 FoV = 45;
@@ -1628,7 +1694,6 @@ int main(void)
 	glm::float32 zFar = 1000.0f;
     glm::mat4 viewMatrix, projectionMatrix;
 	projectionMatrix = glm::perspective(glm::radians(camera.Zoom), (float)windowWidth / (float)windowHeight, zNear, zFar);
-	
 
 	// Time and frame rate tracking
 	static double lastTime = glfwGetTime();
@@ -1641,13 +1706,10 @@ int main(void)
 	{
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		
-
 		// Update states for animation
         double currentTime = glfwGetTime();
         float deltaTime = float(currentTime - lastTime);
 		lastTime = currentTime;
-
-		//glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 		processInput(window, camera, deltaTime);
 
@@ -1656,31 +1718,29 @@ int main(void)
 	
 		// Rendering
 		glm::mat4 vp = projectionMatrix * viewMatrix;
-        glm::mat4 lightProjection = glm::perspective(glm::radians(depthFoV), (float)(windowWidth/windowHeight), depthNear, depthFar);
+        glm::mat4 lightProjection = glm::ortho(-50.0f, 50.0f, -50.0f, 50.0f, 1.0f, 100.0f);
         glm::mat4 lightView = glm::lookAt(lightPosition, lightPosition+lightDir, camera.Up); 
         glm::mat4 lightSpaceMatrix = lightProjection * lightView;
-        spire.renderDepth(lightSpaceMatrix);
+
+		// Render objects for depth
+		spire.renderDepth(lightSpaceMatrix);
+		tile1.renderDepth(lightSpaceMatrix);
+
+		// Unbind FBO
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         spire.render(vp, lightSpaceMatrix, depthMap);
-		tile1.render(vp, currentTime);
+		tile1.render(vp, lightSpaceMatrix, depthMap, currentTime);
 
         skybox.render(vp);
 
-
-
-		/*GLenum err;
-		while ((err = glGetError()) != GL_NO_ERROR) {
-			std::cerr << "OpenGL error: " << err << std::endl;
-		}*/
-
 		if (playAnimation) {
 			time += deltaTime * playbackSpeed;
-			//k.update(time);
+			k.update(time);
 		}
-		//k.render(vp);
-
+		k.render(vp);
 
 		// FPS tracking 
 		// Count number of frames over a few seconds and take average
@@ -1692,7 +1752,7 @@ int main(void)
 			fTime = 0;
 			
 			std::stringstream stream;
-			stream << std::fixed << std::setprecision(2) << "final project | frames per second (FPS): " << fps;
+			stream << std::fixed << std::setprecision(2) << "Final Project | Frames Per Second (FPS): " << fps;
 			glfwSetWindowTitle(window, stream.str().c_str());
 		}
 
@@ -1707,8 +1767,7 @@ int main(void)
 	skybox.cleanup();
 	spire.cleanup();
 	tile1.cleanup();
-	//ground.cleanup();
-	//k.cleanup();
+	k.cleanup();
 
 	// Close OpenGL window and terminate GLFW
 	glfwTerminate();
@@ -1719,8 +1778,6 @@ int main(void)
 // Free-roam camera
 void processInput(GLFWwindow *window, Camera &camera, float deltaTime)
 {
-	// debug [DELETE FOR SUBMISSION]
-	// std::cout << "pos: " << camera.Position.x << " " << camera.Position.y << " " << camera.Position.z;
 
 	if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 	glfwSetWindowShouldClose(window, true);
